@@ -1,0 +1,782 @@
+/* Ported verbatim from the teammate's index_v2.html prototype (its <style> block), minus the
+   documentation-section and glossary styles (that section is excluded from this app). All
+   selectors are scoped under .moe-root, the design-token boundary. Keep edits minimal so this
+   file stays diffable against the prototype. */
+
+.moe-root {
+  --surface-1:      #fcfcfb;
+  --page:           #f9f9f7;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #898781;
+  --gridline:       #e1e0d9;
+  --baseline:       #c3c2b7;
+  --border:         rgba(11,11,11,0.10);
+
+  --series-1: #2a78d6; /* token 0 - blue */
+  --series-2: #1baf7a; /* token 1 - aqua */
+  --series-3: #eda100; /* token 2 - yellow */
+  --series-4: #008300; /* token 3 - green */
+  --series-5: #4a3aa7; /* token 4 - violet */
+  --series-6: #e34948; /* token 5 (overflow) - red */
+
+  --seq-100: #cde2fb;
+  --seq-300: #6da7ec;
+  --seq-500: #256abf;
+  --seq-700: #0d366b;
+  --cell-empty: #eceae3;
+  --zero-fill: #fbeaea;
+  --zero-stroke: #c65a5a;
+  --sub-accent-peach: #c9682e;
+  --sub-accent-mint:  #29805a;
+  --light-red: #cf6b64;
+}
+:root[data-theme="dark"] .moe-root {
+  --surface-1: #1a1a19; --page: #0d0d0d; --text-primary: #ffffff;
+  --text-secondary: #c3c2b7; --text-muted: #898781; --gridline: #2c2c2a;
+  --baseline: #383835; --border: rgba(255,255,255,0.10);
+  --series-1: #3987e5; --series-2: #199e70; --series-3: #c98500;
+  --series-4: #008300; --series-5: #9085e9; --series-6: #e66767;
+  --seq-100: #17253a; --seq-300: #1c5cab; --seq-500: #3987e5; --seq-700: #b7d3f6;
+  --cell-empty: #26251f;
+  --zero-fill: #3a2222; --zero-stroke: #e07a7a;
+  --sub-accent-peach: #ec9a63;
+  --sub-accent-mint:  #5cc492;
+  --light-red: #e29691;
+}
+:root[data-theme="light"] .moe-root {
+  --surface-1: #fcfcfb; --page: #f9f9f7; --text-primary: #0b0b0b;
+  --text-secondary: #52514e; --text-muted: #898781; --gridline: #e1e0d9;
+  --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --series-1: #2a78d6; --series-2: #1baf7a; --series-3: #eda100;
+  --series-4: #008300; --series-5: #4a3aa7; --series-6: #e34948;
+  --seq-100: #cde2fb; --seq-300: #6da7ec; --seq-500: #256abf; --seq-700: #0d366b;
+  --cell-empty: #eceae3;
+  --zero-fill: #fbeaea; --zero-stroke: #c65a5a;
+  --sub-accent-peach: #c9682e;
+  --sub-accent-mint:  #29805a;
+  --light-red: #cf6b64;
+}
+
+/* Bridge: remap the app's Tailwind theme tokens (which the ported Act 2 React components
+   are written against) onto the prototype's tokens, so anything rendered inside .moe-root
+   wears the prototype chrome automatically — and flips with its dark theme. The functional
+   visualization colors (the heat ramps in heatColor.ts, the UMAP category palette)
+   are hard-coded oklch values and deliberately NOT remapped. */
+.moe-root {
+  --color-paper: var(--surface-1);
+  --color-surface: var(--gridline);
+  --color-ink: var(--text-primary);
+  --color-muted: var(--text-muted);
+  --font-display: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-label: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.moe-root {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--page);
+  color: var(--text-primary);
+  min-height: 100vh;
+  padding: 6px 0.5in 24px;
+}
+.moe-wrap { max-width: 1440px; margin: 0 auto 0 0; }
+.full-bleed {
+  width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  box-sizing: border-box; border-radius: 0; padding-left: max(24px, calc(50% - 540px + 24px)); padding-right: max(24px, calc(50% - 540px + 24px));
+}
+header.full-bleed {
+  background: var(--surface-1); border-bottom: 1px solid var(--border);
+  padding-top: 6px; padding-bottom: 5px; margin-bottom: 5px;
+}
+
+header h1 { font-size: 20px; font-weight: 650; margin: 0 0 2px; }
+p.sub { color: var(--text-secondary); font-size: 13.5px; margin: 0 0 2px; line-height: 1.5; }
+p.meta { color: var(--text-muted); font-size: 12px; margin: 0 0 10px; }
+code.inline { background: var(--gridline); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+.prompt-picker { display: flex; align-items: center; gap: 10px; margin: 2px 0 5px; }
+.prompt-picker label { font-size: 12.5px; font-weight: 650; color: var(--text-secondary); }
+.prompt-picker select {
+  font-family: inherit; font-size: 13.5px; color: var(--text-primary); background: var(--surface-1);
+  border: 1.5px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; min-width: 280px;
+}
+.prompt-picker select:hover { border-color: var(--seq-500); }
+
+.panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 10px;
+  margin-bottom: 8px;
+}
+
+.layer-bar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 2px; }
+.layer-bar .label { font-size: 12.5px; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
+.layer-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.layer-tab {
+  width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-secondary); font-size: 11.5px;
+  font-variant-numeric: tabular-nums; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.layer-tab:hover { background: var(--gridline); }
+.layer-tab.active { background: var(--seq-500); color: #fff; border-color: var(--seq-500); font-weight: 650; }
+.play-btn {
+  border: 1px solid var(--border); background: transparent; color: var(--text-primary);
+  border-radius: 7px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; margin-left: auto;
+}
+.play-btn:hover { background: var(--gridline); }
+.play-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.play-btn:disabled:hover { background: transparent; }
+
+/* Not in the prototype: the tab bar's rule is a page-level divider, so it runs to both viewport
+   edges like header.full-bleed's does, instead of stopping at the content column. Done with a
+   negative margin + matching padding rather than the .full-bleed class, because that class's
+   margin-left is calc(50% - 50vw) — centring math, and .moe-wrap is left-aligned (margin: 0 auto
+   0 0) and caps at 1440px, so past ~1536px it overshoots left and falls short on the right.
+   -0.5in cancels .moe-root's own padding exactly at any width; the padding puts the tabs back on
+   the content column. */
+.top-tabs {
+  display: flex; gap: 6px; border-bottom: 1px solid var(--border);
+  margin: 1px 0 4px; margin-left: -0.5in;
+  width: 100vw; padding-left: 0.5in; box-sizing: border-box;
+}
+.top-tab {
+  border: none; background: transparent; color: var(--text-secondary); font-size: 13.5px; font-weight: 650;
+  padding: 9px 4px; margin-right: 18px; cursor: pointer; border-bottom: 2.5px solid transparent; margin-bottom: -1px;
+}
+.top-tab:hover { color: var(--text-primary); }
+.top-tab.active { color: var(--seq-500); border-bottom-color: var(--seq-500); }
+
+.sub-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 2px 0 8px; }
+.sub-tab {
+  border: 1.5px solid var(--border); background: transparent; color: var(--text-secondary);
+  font-size: 12px; font-weight: 650; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+}
+.sub-tab:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+.sub-tab.active { color: var(--seq-500); border-color: var(--seq-500); background: color-mix(in srgb, var(--seq-500) 8%, transparent); }
+/* Not in the prototype: the Domain Specialization tab disables the five statistics sub-tabs for
+   models with no aggregate-statistics file (see v2/domain/models.ts). :hover still fires on a
+   disabled button, so the hover affordance has to be explicitly undone or they read clickable. */
+.sub-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+.sub-tab:disabled:hover { border-color: var(--border); color: var(--text-secondary); }
+.domain-subtab-panel { }
+
+/* Not in the prototype: the title row for a math modal that owns sub-tabs (today: Attention).
+   It is injected into #math-modal-header-slot, so it sits IN the modal header, level with ✕, which
+   is the same arrangement as the Router modal's header — bold label, then the pills, close button
+   pinned right by .math-modal-header's space-between. Same 14px gap and same 15px/700 h3 as that
+   header. The modal's real title element (#math-modal-title) is display:none, so this bar is the
+   only place these modals are named. Overrides .sub-tabs' own margin, tuned for a standalone row. */
+.math-subtab-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 14px 0 0; }
+.math-subtab-bar h3 { font-size: 15px; font-weight: 700; margin: 0; white-space: nowrap; }
+.math-subtab-bar .sub-tabs { margin: 0; }
+
+/* Not in the prototype: the "Experts activation rates per layer" sub-tab's heat-grid/histogram
+   switch.
+   Deliberately ONE control rather than a pair of .sub-tab pills, so it doesn't read as a second
+   row of navigation under the sub-tab bar. Both labels stay visible because the two views are
+   peers — neither is the "off" state of the other — and a thumb slides between them. It borrows
+   .sub-tab.active's exact colors so it belongs to the same family without being mistaken for it. */
+.view-switch {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  padding: 2px; border: 1.5px solid var(--border); border-radius: 999px;
+  background: transparent; font-family: inherit; cursor: pointer;
+}
+.view-switch:hover { border-color: var(--text-secondary); }
+.view-switch:focus-visible { outline: 2px solid var(--seq-500); outline-offset: 2px; }
+/* translateX(100%) lands exactly on segment 2: the columns are 1fr each, so the thumb's own
+   width is one segment. Transform rather than left/width keeps the slide off the layout path.
+   index.css's global prefers-reduced-motion rule flattens the duration, so no JS guard needed. */
+.view-switch-thumb {
+  position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px);
+  border-radius: 999px; background: color-mix(in srgb, var(--seq-500) 8%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--seq-500);
+  transition: transform 240ms var(--ease-out-expo);
+}
+.view-switch[data-side="1"] .view-switch-thumb { transform: translateX(100%); }
+/* position:relative, not a z-index: the labels follow the thumb in DOM order, so they paint
+   over it on their own. */
+/* DESIGN.md's Label step (650 / 12.5px / 1.4), not .sub-tab's legacy 12px/1.2 — the Half-Pixel
+   Rule says new type matches the ramp. The vertical padding is 4px rather than the pills' 6px so
+   the taller line-height still lands the switch at the ~32px height of the category pills it
+   shares a row with. */
+.view-switch-label {
+  position: relative; padding: 4px 14px; text-align: center; white-space: nowrap;
+  font-size: 12.5px; font-weight: 650; line-height: 1.4; color: var(--text-secondary);
+  transition: color 240ms var(--ease-out-expo);
+}
+.view-switch-label.active { color: var(--seq-500); }
+
+/* Not in the prototype: "Open all categories in one window", under the view switch. Borderless and
+   link-weight on purpose — the switch above it changes what the page shows, this only opens a
+   window over it, and a third bordered pill in that corner would read as a third view. */
+.open-all-link {
+  border: 0; background: transparent; padding: 0 4px; font-family: inherit; cursor: pointer;
+  /* DESIGN.md's Micro step (600 / 11.5px / 1.5) — one step under the switch's Label, which is
+     the hierarchy: the switch chooses the view, this only opens a window over it. */
+  font-size: 11.5px; font-weight: 600; line-height: 1.5; color: var(--text-muted);
+  text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px;
+  transition: color 160ms var(--ease-out-expo), text-decoration-color 160ms var(--ease-out-expo);
+}
+.open-all-link:hover { color: var(--seq-500); text-decoration-color: currentColor; }
+.open-all-link:focus-visible { outline: 2px solid var(--seq-500); outline-offset: 2px; border-radius: 4px; }
+
+/* Router modal · Per-token routing tab (token chips, header line, RouterDiagram fan, caption). */
+.ptr-chip-row { display: flex; gap: 5px; flex-wrap: wrap; margin: 4px 0 8px; }
+.ptr-chip {
+  font-family: inherit; font-size: 12px; font-weight: 600; padding: 3px 9px;
+  border-radius: 999px; cursor: pointer;
+  color: var(--chip-color, var(--text-secondary));
+  background: color-mix(in srgb, var(--chip-color, var(--border)) 8%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--chip-color, var(--border)) 45%, transparent);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.ptr-chip:hover { background: color-mix(in srgb, var(--chip-color, var(--border)) 16%, var(--surface-1)); }
+.ptr-chip.active {
+  color: var(--chip-color, var(--seq-500));
+  background: color-mix(in srgb, var(--chip-color, var(--border)) 20%, var(--surface-1));
+  border-color: var(--chip-color, var(--seq-500));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chip-color, var(--seq-500)) 45%, transparent);
+}
+.ptr-header { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+/* The tab is a column that fills the modal body, so the fan is the one flexible row: it takes
+   whatever height the chips/header/caption leave and the SVG scales into it (viewBox + the default
+   preserveAspectRatio letterbox), instead of overflowing and making the body scroll. */
+.ptr-root { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+/* 760, not 620: the modal is ~1100px wide inside, so the old cap left the fan width-starved and it
+   only ever grew as tall as 620px of width allowed. The extra ceiling is what lets it use the
+   leftover height (and so render its labels bigger) whenever the viewport gives it room. */
+.ptr-fan { max-width: 760px; width: 100%; margin: 0 auto; flex: 1 1 auto; min-height: 0; display: flex; }
+.ptr-fan > div { flex: 1 1 auto; min-height: 0; display: flex; }
+.ptr-fan svg { height: 100%; min-height: 0; }
+.ptr-caption {
+  margin: 8px auto 2px; max-width: 560px; text-align: center; flex: 0 0 auto;
+}
+.ptr-eyebrow {
+  font-family: var(--font-label, ui-monospace, monospace);
+  font-size: 10.5px; letter-spacing: 0.08em; font-weight: 700; color: var(--seq-500); margin-bottom: 4px;
+}
+.ptr-caption-title { margin: 0 0 5px; font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.ptr-caption-body { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+
+.domain-row-label { font-size: 11.5px; font-weight: 650; fill: var(--text-primary); }
+.domain-cell-number { font-size: 9.5px; font-weight: 400; fill: #fff; pointer-events: none; }
+.domain-cell { cursor: pointer; transition: stroke 0.15s, stroke-width 0.15s; }
+.domain-cell.route-hit { stroke: #fff; stroke-width: 2.5; }
+.domain-axis-tick { font-size: 9px; fill: var(--text-muted); }
+.domain-line-path { fill: none; stroke-width: 2.2; }
+.domain-line-dot { cursor: pointer; }
+.domain-line-axis { stroke: var(--gridline); stroke-width: 1; }
+.domain-line-tick { font-size: 9px; fill: var(--text-muted); }
+
+.domain-specialists-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.domain-hist-chart { margin-bottom: 10px; }
+.domain-hist-chart .domain-hist-title { font-size: 11.5px; font-weight: 700; margin: 0 0 2px 4px; text-transform: capitalize; }
+.domain-hist-chart.fill { margin-bottom: 0; display: flex; flex-direction: column; min-height: 0; }
+.domain-hist-chart.fill .domain-hist-title { flex: 0 0 auto; }
+.domain-hist-bar { cursor: pointer; }
+.domain-hist-axis-tick { font-size: 8px; fill: var(--text-muted); }
+.domain-picker { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 1px 0 7px; }
+.domain-picker .dp-item {
+  display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 650; cursor: pointer;
+  padding: 5px 10px 5px 8px; border-radius: 999px; border: 1.5px solid var(--border); user-select: none;
+  text-transform: capitalize; color: var(--text-secondary); transition: all 0.12s;
+}
+.domain-picker .dp-item input { accent-color: currentColor; cursor: pointer; }
+.domain-picker .dp-item.on { color: var(--dp-color); border-color: var(--dp-color); background: color-mix(in srgb, var(--dp-color) 10%, var(--surface-1)); }
+.domain-specialist-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.domain-specialist-card h4 { font-size: 12.5px; font-weight: 700; margin: 0 0 8px; }
+.domain-specialist-row {
+  display: flex; align-items: center; gap: 8px; font-size: 11.5px; padding: 3px 0;
+  border-top: 1px solid var(--gridline); cursor: pointer;
+}
+.domain-specialist-row:first-of-type { border-top: none; }
+.domain-specialist-row:hover { color: var(--seq-500); }
+.domain-specialist-row .tag { font-variant-numeric: tabular-nums; color: var(--text-muted); width: 92px; flex: none; }
+.domain-specialist-row .score { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.domain-prompts-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.domain-prompt-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.domain-prompt-card h5 { font-size: 11.5px; font-weight: 700; margin: 0 0 6px; text-transform: capitalize; }
+.domain-prompt-card ul { margin: 0; padding-left: 16px; font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
+
+.legend { display: flex; gap: 7px; flex-wrap: wrap; margin: 7px 0 5px; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); cursor: pointer; user-select: none; }
+.legend-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.legend-item.dim { opacity: 0.35; }
+
+svg.moe-svg { width: 100%; height: auto; display: block; }
+.row-label { font-size: 12px; fill: var(--text-primary); font-weight: 600; }
+.expert-cell { cursor: pointer; transition: stroke 0.15s, stroke-width 0.15s; }
+.expert-cell.route-hit { stroke: #fff; stroke-width: 2.5; }
+.cell-number { font-size: 8.5px; font-weight: 700; fill: #fff; font-variant-numeric: tabular-nums; pointer-events: none; }
+.route-line { fill: none; stroke-width: 1.6; opacity: 0; pointer-events: none; }
+.route-dot { pointer-events: none; }
+@keyframes route-fade-in { from { opacity: 0; } to { opacity: 0.85; } }
+.top8-readout { font-size: 9.5px; fill: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.top8-readout .hi { font-weight: 700; }
+.axis-tick { font-size: 9px; fill: var(--text-muted); }
+.axis-line { stroke: var(--baseline); stroke-width: 1; }
+.layer-caption { font-size: 11px; fill: var(--text-muted); }
+
+.tooltip {
+  position: fixed; pointer-events: none; z-index: 50;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; color: var(--text-primary);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-width: 220px; opacity: 0; transition: opacity 0.08s;
+}
+.tooltip .t-title { font-weight: 650; margin-bottom: 3px; }
+.tooltip .t-row { display: flex; justify-content: space-between; gap: 10px; color: var(--text-secondary); }
+.tooltip .t-row b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+.scale-legend { display: flex; align-items: center; gap: 18px; font-size: 11.5px; color: var(--text-secondary); margin: 8px 0 2px; flex-wrap: wrap; }
+.scale-legend .item { display: flex; align-items: center; gap: 7px; }
+.scale-legend .sw { width: 64px; height: 12px; border-radius: 3px; flex: none; border: 1px solid var(--border); }
+.scale-legend .sw.active { background: linear-gradient(to right, #cfe0f5, #1c4a86); }
+.scale-legend .sw.inactive { background: linear-gradient(to right, #fbe0cb, #e08e57); }
+
+
+footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line-height: 1.5; }
+
+.math-hint { font-size: 12.5px; color: var(--text-secondary); }
+@keyframes mm-appear { from { opacity: 0; transform: scale(0.4); } to { opacity: 1; transform: scale(1); } }
+.mm-cell { animation: mm-appear 0.3s ease-out both; }
+.no-cell-anim .mm-cell { animation: none; }
+/* The Attention modal's staged reveals (playAttnStep in archExplorer.ts) hand each step panel's
+   cells to GSAP, and `.beat-armed` paints their start state — so a panel's FIRST paint is already
+   frame 0 of its timeline. Without it GSAP has to set that state itself on a tree the browser has
+   never laid out, and each element forces its own style recalc: measured ~0.5ms per cell, landing
+   as a single ~1s stalled frame at modal open (it scaled with cell count: 1800 cells → ~0.87s,
+   2010 → ~0.95s). Arming in CSS lets the browser do one batched layout pass instead, and there is
+   no flash of the finished diagram because it is never painted in that state.
+   ⚠ `playAttnStep` MUST strip this class on EVERY exit path — reduced motion and the head-nav
+   replay skip included — or the step renders blank. It is the only thing that does.
+   The second rule targets operators by the absence of grid cells; verified across all three models
+   that every `[data-beat]` either holds `.mm-cell`s or is one of the operator keys. */
+.beat-armed .mm-cell { opacity: 0; transform: scale(0.4); }
+.beat-armed [data-beat]:not(:has(.mm-cell)) { opacity: 0; transform: scale(0.8); }
+.math-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.math-head .chip { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
+.math-block { margin-bottom: 16px; }
+.math-block h3 { font-size: 12px; font-weight: 650; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.02em; margin: 0 0 8px; }
+.math-eq {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; line-height: 2; color: var(--text-primary);
+  background: var(--page); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; max-width: 100%; overflow-x: auto; white-space: pre;
+}
+.math-eq.wrap { white-space: normal; overflow-wrap: break-word; line-height: 1.8; }
+.math-eq .dim { color: var(--seq-500); }
+.math-eq .op { color: var(--text-muted); }
+.math-eq .val { color: var(--text-secondary); }
+.math-note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line-height: 1.5; }
+
+.pdf-block.tour-active {
+  box-shadow: 0 0 0 3px var(--seq-500), 0 8px 24px rgba(0,0,0,0.18);
+  transform: translateY(-2px);
+}
+.pdf-block.selected:not(.tour-active) {
+  box-shadow: 0 0 0 2.5px var(--block-accent, var(--seq-500)), 0 6px 16px rgba(0,0,0,0.14);
+}
+.tour-overlay {
+  position: fixed; left: 0; right: 0; bottom: 0; display: none;
+  justify-content: center; padding: 0 16px 20px; z-index: 120; pointer-events: none;
+}
+.tour-overlay.open { display: flex; }
+.tour-card {
+  pointer-events: auto; width: min(560px, 100%); background: var(--surface-1);
+  border: 1.5px solid var(--seq-500); border-radius: 14px; padding: 16px 20px;
+  box-shadow: 0 16px 44px rgba(0,0,0,0.28); animation: math-pop 0.14s ease-out;
+}
+.tour-step-label { font-size: 11px; font-weight: 700; color: var(--seq-500); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.tour-card h3 { font-size: 15px; font-weight: 750; margin: 0 0 6px; }
+.tour-card p { font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; margin: 0; }
+.tour-controls { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+
+.math-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(11,11,11,0.42);
+  display: none; align-items: flex-start; justify-content: center;
+  padding: 3vh 16px; z-index: 100; overflow-y: auto; box-sizing: border-box;
+}
+.math-modal-backdrop.open { display: flex; }
+.math-modal {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px;
+  width: min(1240px, 94vw); margin: 0 auto; box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  animation: math-pop 0.12s ease-out; overflow-x: auto; max-width: 100%; box-sizing: border-box;
+}
+@keyframes math-pop { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.math-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.math-modal-header h3 { font-size: 15px; font-weight: 700; margin: 0; }
+#math-modal-title { display: none; }
+.math-modal-close {
+  width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); font-size: 16px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.math-modal-close:hover { background: var(--gridline); color: var(--text-primary); }
+.math-modal-body { padding: 18px 20px 20px; }
+
+/* 3-column grid: [spacer | centered label | right-aligned Start-tour]. The 1fr side columns keep
+   "‹ Transformer Block N ›" in the true panel centre on wide screens, level with the Start-tour
+   button, while giving the label its own column so it can never overlap the button on narrow ones. */
+.flow-header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; column-gap: 10px; margin: 2px 0 10px; min-height: 34px; }
+.flow-block-label { grid-column: 2; justify-self: center; display: flex; align-items: center; gap: 10px; }
+.flow-block-label .title { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.flow-header > .play-btn { grid-column: 3; justify-self: end; }
+.flow-nav-btn {
+  width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: var(--page);
+  color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px;
+}
+.flow-nav-btn:hover { background: var(--gridline); color: var(--text-primary); }
+
+.pdf-scroll {
+  /* The block-flow row fits the panel width via flex-shrink; overflow-x clips the invisible
+     hover-popover geometry (position:absolute, opacity 0 until hovered) so it can't force a
+     scrollbar that has nothing visible to scroll to. Must be `clip` (not `hidden`): with `hidden`
+     on one axis, the CSS spec promotes the other axis's `visible` to `auto`, which brought back a
+     phantom *vertical* scrollbar from the popovers that extend below the row. `clip` + `visible`
+     are both non-scrolling, so no promotion happens and the popovers still reveal on hover. */
+  overflow-x: clip; overflow-y: visible; box-sizing: border-box;
+  padding: 6px 12px 14px;
+  margin: 0 -12px;
+}
+.domain-scroll {
+  overflow-x: auto; overflow-y: visible; box-sizing: border-box;
+  padding: 6px 12px 14px;
+  margin: 0 -12px;
+}
+/* Blocks size to their own content and hang from a shared top edge (no equal-height stretch).
+   `safe center` centers the row when it fits but falls back to start-alignment on overflow so the
+   left-hand blocks are never clipped on narrow viewports (the panel's overflow-x is `clip`). */
+.pdf-flow-row { display: flex; flex-wrap: nowrap; align-items: flex-start; justify-content: safe center; width: 100%; }
+
+/* The transformer-block deck: the six per-layer blocks ride in one card so stepping layers reads
+   as swiping through N identical blocks. The RESTING card stays in flow — it is what gives the
+   stage its natural size before archExplorer locks it to the widest layer's card; only
+   the outgoing snapshot goes absolute.
+
+   The stage's width lock is an inline `width` (not `min-width`), and everything down to the
+   blocks keeps a shrink factor + `min-width: 0`: with room to spare the stage sits at its locked
+   width and nothing moves between layers, but on a narrow viewport the deck compresses the way
+   the flat row used to instead of pushing Final Output past the panel edge.
+
+   ⚠ The stage NEVER clips, at rest or mid-tuck. The card is exactly as wide as the stage, so ANY
+   horizontal clip cuts the tuck's sideways throw off at the deck edge — the prototype
+   (docs/notes/deck-animations.html) designed that cut in on purpose; we don't want it. That is why
+   the throw is a small fixed px (THROW_PX in archExplorer.ts) rather than a fraction of the card
+   width: at 18px it stays inside the 20px gap before Final Output and needs no containment. Clipping
+   here also cost the blocks their hover popovers/hints, which are centred on their block and so
+   overhang the card edge (the first block's hint lost its left ~18px, the trailing thin Residual's
+   320px popover ~125px on the right). `.pdf-scroll` remains the outer guard, so nothing escapes the
+   panel. If a clip ever comes back it must be `clip`, never `hidden` — `hidden` makes this a scroll
+   container and the tour's scrollIntoView() jolts the card sideways (see .pdf-scroll above). */
+/* margin-bottom 20px → 44px opens the loop-back lane (22px lane + 22px of clearance for the
+   caption chip). The loop SVG draws OUTSIDE the stage box, into that margin, which is only
+   possible because `overflow: visible` above is also what the tuck needs — the two requirements
+   happen to agree. */
+.layer-stage {
+  position: relative; flex: 0 1 auto; min-width: 0; display: flex;
+  overflow: visible; margin-bottom: 44px;
+}
+/* The z-index ladder is what makes the tuck read: the live card sits above both ghosts, the
+   outgoing snapshot starts above everything, and mid-tuck the timeline drops it to 0 so it slides
+   in UNDER ghost 1 (z:1) — into the deck rather than across it. */
+/* padding-bottom 10px → 38px opens the residual skip lane (18px lane + 20px of clearance for the
+   arrowheads and the label chips). It belongs to the CARD, not the stage, because the two skip
+   arcs are one layer's internals and must swipe away with it. Deliberately NOT transitioned:
+   drawFlowArcs() measures live rects, so an animating padding would have it reading a
+   mid-transition box and parking the lane in the wrong place until the next rebuild.
+   applyStageLock() reads padY off getComputedStyle, so the taller card is picked up for free. */
+.layer-card {
+  position: relative; z-index: 2; flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; justify-content: center;
+  box-sizing: border-box; padding: 10px 12px 38px; border: 1.5px solid var(--border); border-radius: 16px;
+  background: var(--surface-1); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  will-change: transform;
+}
+.layer-card-row { display: flex; flex-wrap: nowrap; align-items: flex-start; min-width: 0; }
+.layer-card-outgoing { position: absolute; inset: 0; z-index: 5; }
+/* Decorative only — empty divs, never clones (a clone would match the .moe-block :has() width
+   rules below and inflate the guided tour's .pdf-block count). Inset horizontally and offset
+   downward so the stage's horizontal clip can't eat them. */
+.layer-ghost {
+  position: absolute; border: 1.5px solid var(--border); border-radius: 16px;
+  background: color-mix(in srgb, var(--border) 3%, var(--surface-1)); pointer-events: none;
+}
+.layer-ghost.g1 { left: 10px; right: 10px; top: 7px; bottom: -7px; z-index: 1; }
+.layer-ghost.g2 { left: 20px; right: 20px; top: 14px; bottom: -14px; z-index: 0; }
+/* The two arrow families the row was missing (drawn by drawFlowArcs in archExplorer.ts):
+   `.skip-overlay` (inside the card) shows what each Residual block is residual TO, and
+   `.loop-overlay` (inside the stage) shows where the next layer re-enters.
+   width/height 100% is load-bearing, not belt-and-braces: <svg> is a replaced element, so
+   `inset: 0` alone leaves it at its 300×150 intrinsic size and the arcs silently draw into the
+   wrong box. `overflow: visible` lets the loop draw below the stage, into its 44px margin. */
+.skip-overlay, .loop-overlay {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: visible; pointer-events: none;
+}
+.skip-overlay { z-index: 3; }
+/* z:1 AND last in the stage's DOM order, so the loop paints above ghost g1 (z:1, but earlier in
+   the DOM) and g2 (z:0) while staying under the card (z:2). Without this its arrowhead lands
+   inside g1's 7px bottom overhang and disappears. There is no integer between 1 and 2, so the
+   DOM order is doing real work here — append the SVG after the card, never before. */
+.loop-overlay { z-index: 1; }
+.pdf-block {
+  flex: 0 1 auto; min-width: 175px; border-radius: 16px; border: 1.5px solid var(--block-accent, var(--border));
+  background: var(--block-bg, color-mix(in srgb, var(--block-accent, var(--border)) 9%, var(--surface-1)));
+  padding: 12px 12px; cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+.pdf-block.narrow { flex: 0 1 auto; min-width: 85px; padding: 10px 9px; }
+/* Reserved ~200px so the token chips flow-wrap into ~2 columns instead of a single tall tower;
+   height still grows with token count. min-width lets it compress (not vanish) on narrow viewports.
+   200px (not 160px) because DeepSeek's BOS chip text, "<|begin_of_sentence|>", is wider than any
+   other model's token text and must still fit on one nowrap line inside the block. */
+.pdf-block.embed-narrow { flex: 0 1 200px; min-width: 150px; padding: 10px 8px; cursor: default; }
+.pdf-block.embed-narrow:hover { transform: none; box-shadow: none; }
+/* Hook for the Final Output block's content floor (see the `min-width: 1141px` query further down).
+   Its own class rather than `.narrow`, which Embedding also carries. */
+/* nowrap keeps every chip on one line, so rows stay uniform height and no token wraps mid-word. */
+.pdf-block.embed-narrow .pdf-token-chip { padding: 3px 7px; font-size: 11.5px; cursor: pointer; white-space: nowrap; }
+.pdf-block.compact { flex: 1 1 165px; min-width: 165px; padding: 12px 13px; }
+.pdf-block.compact h4 { font-size: 12.5px; }
+.pdf-block.compact .dims { font-size: 11px; }
+.pdf-block.compact .cell-dim { font-size: 9.5px; }
+.pdf-block:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.10); }
+.pdf-block h4 {
+  margin: 0 0 7px; font-size: 13.5px; font-weight: 850; color: var(--block-accent, var(--text-primary));
+  display: flex; align-items: center; gap: 5px; line-height: 1.25;
+}
+.pdf-block .dims { font-size: 10.5px; color: var(--text-muted); margin-bottom: 6px; line-height: 1.5; }
+.dims .op { color: var(--text-muted); font-size: 11px; padding: 0 2px; }
+.dims .cell-name { color: var(--text-primary); font-weight: 600; }
+.dims .cell-dim { color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 9.5px; margin-left: 2px; }
+.pdf-block .foot-note { font-size: 10px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
+.pdf-block .grid-wrap { margin: 5px 0 3px; }
+.pdf-head-nav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; font-size: 12.5px; color: var(--text-secondary); }
+.pdf-head-nav button { border: none; background: none; color: var(--text-secondary); cursor: pointer; font-size: 15px; padding: 0 3px; }
+.pdf-head-nav button:hover { color: var(--seq-500); }
+.pdf-block.moe-block { cursor: pointer; }
+.pdf-block.moe-block:hover { border-color: var(--seq-500); }
+/* Connectors don't stretch — they sit at a fixed top offset so the arrow threads through the
+   body of every top-aligned card (including the shortest, MoE/Final) on one consistent flow-line,
+   instead of floating in the empty gap beneath a short card.
+   The 0.55 opacity lives here, on the wrapper, rather than on the SVG strokes: one declaration
+   covers both the shaft and the arrowhead and survives any change to the connector's shape. The
+   arrows are structure, not content — at full strength seven of them compete with the blocks they
+   are meant to be joining. */
+.pdf-connector { flex: 0 0 20px; align-self: flex-start; display: flex; align-items: flex-start; justify-content: center; padding-top: 46px; opacity: 0.55; }
+/* NOT in the prototype. The card's contents have a hard min-content floor — .pdf-block.thin is
+   `flex: 0 0 44px` and the connectors were fixed too — while the card's BOX keeps shrinking, so
+   below that floor the trailing Residual slid out of the stage and landed on top of Final Output.
+   (The 2026-07-29 Residual/RMSNorm split raised the floor 612px → 676px and pushed that break
+   point up to ~1064px, i.e. onto 1024px viewports.) Letting the five IN-CARD connectors give way
+   reclaims 70px and puts it back to ~994px. See docs/notes/prpose-fix-overlap.html for the live
+   before/after.
+   2026-07-30: the Final RMSNorm block (44px thin + a 20px connector, both outside the card) put
+   64px back onto the row and the break point back to ~1075px, so the rule was extended to the two
+   row-level connectors that are NOT the throw gap, via `.pdf-connector.shrinkable`. Three things
+   this must keep:
+   - The connector BETWEEN the stage and Final RMSNorm keeps a fixed 20px and must never get
+     `.shrinkable` — that is the gap THROW_PX = 18 is documented to fit inside.
+   - shrink 0.25, NOT 1: flex weights shrinkage by factor × base size, so at 1 the arrows start
+     trimming ~1150px while the two combo blocks still have 140px of give — paying the cost at
+     widths that were never broken. At 0.25 they take ~4% of early shrinkage and the combos hit
+     their `min-width: 200px` floor first.
+   - overflow + flex-end clip the SHAFT, never the arrowhead: the head is x=15..20 of the 20px
+     viewBox, so pinning the SVG right keeps it whole and 6px is the floor that still shows it.
+   - the `svg` rule is load-bearing, not belt-and-braces: the SVG is itself a flex item, so without
+     it the SVG SHRINKS with its wrapper, and a viewBox'd SVG scales its contents to fit — the arrow
+     came out as a 30%-scale dash rather than a clipped one. Fixing its basis is what turns the
+     wrapper's overflow into an actual crop. */
+.layer-card-row .pdf-connector, .pdf-connector.shrinkable {
+  flex-basis: 20px; min-width: 6px; overflow: hidden; justify-content: flex-end;
+}
+.layer-card-row .pdf-connector { flex-grow: 0; flex-shrink: 0.25; }
+.layer-card-row .pdf-connector svg, .pdf-connector.shrinkable svg { flex: 0 0 20px; }
+.pdf-connector.shrinkable { flex-grow: 0; flex-shrink: 0.25; }
+/* Same bargain for the Final RMSNorm itself: it is the only thin block outside the card, so its
+   `flex: 0 0 44px` was 44 unshrinkable px on the row. 26px still fits the rotated 11px label. */
+.pdf-block.thin.final-norm { flex: 0 0.25 44px; min-width: 26px; }
+/* ⚠ Below this width the row-level items want the OPPOSITE weight to the in-card ones, and the
+   reason is not obvious: flex distributes shrinkage by factor × basis, and on the ROW the only
+   other shrinkable item is the stage — basis ~900px. At 0.25 a 20px arrow absorbs ~0.5% of the
+   shrinkage and hands the stage back ~1px, which is not worth having. Cranking the factor makes
+   these three bottom out at their floors FIRST, and every px they give up is a px the stage keeps
+   — the stage shrinking past its own contents is the actual failure mode (see .layer-stage).
+   It has to be a MEDIA QUERY, not the default: flex shrinkage is proportional and continuous, so
+   a permanently high factor collapses the arrows to 6px at 1440px too, where nothing was wrong.
+   1080px is just above the ~1075px break point, so the snap lands where the deck is visibly tight
+   rather than at a width where nothing was wrong yet — both items reach their floors immediately,
+   so a lower query buys the same reclaim with a less arbitrary discontinuity.
+   Inside the card 0.25 stays right at every width — the competing combos have their own 200px
+   floors, so the arrows are never the first to give. */
+@media (max-width: 1080px) {
+  .pdf-connector.shrinkable, .pdf-block.thin.final-norm { flex-shrink: 30; }
+}
+
+/* Final Output sizes to its widest "token — pct%" row instead of ellipsizing it (2026-08-01, by
+   request: "Pyth…" for "Python" was the report), but ONLY where the row can afford it. Holding a
+   content floor costs the row ~25px on OLMoE/JetMoE and ~45px on DeepSeek (whose candidates are the
+   longest), and every other item is already at its floor from ~1080px down — measured at 1024:
+   embed 150, thins 44, combos 200, final-norm 26, all five in-card connectors 6px. So the cost lands
+   straight on the overlap onset, moving it 1009/1025/1025px → 1072/1087/1112px, i.e. back onto
+   1024px viewports, the exact width the 2026-07-29 connector-shrink fix was made to rescue.
+   Hence min-width, NOT max-width: the ellipsis stays the default and the content floor is the
+   enhancement, so the narrow layout is bit-for-bit what shipped before this change.
+   1141px, not 1081px: the query has to clear the WORST model's new onset, and DeepSeek's is ~1112px
+   — a shared break point at the 1080px one below would have left DeepSeek overlapping at 1100px.
+   min-content, not a bigger fixed min-width: the widest candidate is per-model AND per-prompt, so
+   any number here is one prompt away from being wrong again. */
+@media (min-width: 1141px) {
+  .pdf-block.out-narrow { min-width: min-content; }
+  /* Undoes the truncation, making the row's min-content = token + gap + pct, which is what the
+     block's floor above then honours. `min-width: auto` is the load-bearing half, not `flex: 0 0
+     auto`: on a flex item `auto` resolves to min-content, and it is the override of the base rule's
+     `min-width: 0` that actually stops the token shrinking. It reads like a no-op reset; it is not. */
+  .pdf-nt-row .tok { flex: 0 0 auto; min-width: auto; overflow: visible; text-overflow: clip; }
+}
+
+.pdf-block { position: relative; }
+.pdf-hover-hint, .pdf-click-hint {
+  position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%) translateY(6px);
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  background: var(--surface-1); color: var(--text-primary); font-size: 13px; font-weight: 600;
+  border-radius: 999px; padding: 9px 14px 9px 16px; margin: 0 0 10px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
+  opacity: 0; pointer-events: none; z-index: 25; transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.pdf-hover-hint::after, .pdf-click-hint::after {
+  content: '⤢'; font-size: 13px; color: var(--seq-500); line-height: 1;
+}
+.pdf-block:hover .pdf-hover-hint, .pdf-block:hover .pdf-click-hint {
+  opacity: 1; transform: translateX(-50%) translateY(0);
+}
+.pdf-block.thin .pdf-hover-hint, .pdf-block.thin .pdf-click-hint { bottom: auto; top: 100%; transform: translateX(-50%) translateY(-6px); margin: 10px 0 0; }
+.pdf-block.thin:hover .pdf-hover-hint, .pdf-block.thin:hover .pdf-click-hint { transform: translateX(-50%) translateY(0); }
+.pdf-popover {
+  position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%) translateY(4px);
+  width: 360px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.22); padding: 15px 17px; z-index: 30;
+  opacity: 0; pointer-events: none; transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.pdf-block:hover .pdf-popover { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+.pdf-popover h5 { margin: 0 0 8px; font-size: 13.5px; font-weight: 700; color: var(--text-primary); }
+.pdf-popover .dims { margin-bottom: 4px; }
+
+.pdf-token-chip {
+  position: relative; display: inline-block; padding: 4px 10px; margin: 2px 4px 2px 0;
+  border-radius: 8px; border: 1.5px solid; font-size: 12.5px; font-weight: 650; cursor: default;
+}
+.domain-token-chip {
+  display: inline-block; padding: 3px 9px; margin: 2px 4px 2px 0; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--page); font-size: 12px; font-weight: 600; color: var(--text-primary);
+}
+/* --pop-shift is set by clampTokenPopover() in archExplorer.ts: the popover is centred on its chip,
+   and for the leftmost chip of each row that centring puts half of it outside `.pdf-scroll`'s
+   `overflow-x: clip` edge. The nudge rides inside the SAME transform as the centring so the two
+   cannot fight; it must therefore be repeated verbatim on the :hover rule below, which re-declares
+   transform to drop the 4px entry offset. */
+.pdf-token-popover {
+  position: absolute; top: calc(100% + 6px); left: 50%;
+  transform: translateX(calc(-50% + var(--pop-shift, 0px))) translateY(4px);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.22); padding: 8px 10px; z-index: 35; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity 0.1s ease, transform 0.1s ease;
+}
+.pdf-token-chip:hover .pdf-token-popover { opacity: 1; pointer-events: auto; transform: translateX(calc(-50% + var(--pop-shift, 0px))) translateY(0); }
+.pdf-token-popover .grid-wrap, .pdf-token-popover .dims { margin: 0 0 4px; }
+
+/* align-self: stretch makes the Residual bars full-height structural dividers (label centered),
+   framing the flow — the one place we let something span the row height; never the content cards. */
+.pdf-block.thin { flex: 0 0 44px; min-width: 44px; align-self: stretch; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 4px; }
+/* The Final RMSNorm is the one thin block that lives in the ROW, not the card, so
+   `align-self: stretch` would size it to the flex line — which now includes the stage's 44px
+   loop-back margin, leaving it hanging below the loop arc like a column the loop passes through.
+   Pin it to the top instead; drawFlowArcs() sets its height to the card's measured height, so it
+   lines up with the deck rather than with the lane beneath it. */
+.pdf-block.thin.final-norm { align-self: flex-start; }
+.pdf-block.thin h4 {
+  writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; font-size: 11px; letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.pdf-block.thin .pdf-popover { width: 320px; left: 50%; }
+
+.pdf-block.moe-combo {
+  flex: 0 1 auto; min-width: 200px; border-width: 2px;
+  background: color-mix(in srgb, var(--block-accent) 12%, var(--surface-1));
+}
+/* MoE/Dense block gets a fixed width so it never reshapes with prompt length — it only changes
+   width when the subpanel count changes (Dense=1 → MoE=2 → DeepSeek MoE with shared lane=3), which
+   is exactly the MoE↔Dense switch. The paragraph inside needs a width to wrap against, so this can't
+   be pure content-width. :has() picks the width off the actual subpanel count (later rule wins). */
+.pdf-block.moe-combo.moe-block { flex: 0 1 auto; width: 240px; min-width: 200px; }
+.pdf-block.moe-combo.moe-block:has(.moe-side-by-side > .moe-subpanel:nth-child(2)) { width: 340px; }
+.pdf-block.moe-combo.moe-block:has(.moe-side-by-side > .moe-subpanel:nth-child(3)) { width: 440px; }
+.moe-combo-sec h5 {
+  margin: 0 0 5px; font-size: 12px; font-weight: 850; color: var(--series-1);
+  display: flex; align-items: center; gap: 4px;
+}
+.moe-combo-divider { height: 1px; background: color-mix(in srgb, var(--block-accent) 35%, var(--border)); margin: 12px 0; }
+.moe-side-by-side { display: flex; gap: 10px; align-items: stretch; }
+.moe-subpanel {
+  flex: 1; min-width: 0; min-height: 108px; border-radius: 14px; padding: 22px 14px;
+  background: color-mix(in srgb, var(--sub-accent) 14%, var(--surface-1));
+  border: 2px solid var(--sub-accent); box-shadow: 0 2px 8px color-mix(in srgb, var(--sub-accent) 18%, transparent);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+.moe-subpanel:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--sub-accent) 28%, transparent);
+}
+.moe-subpanel h5 { margin: 0; font-size: 17px; font-weight: 850; letter-spacing: 0.01em; color: var(--sub-accent); text-align: center; line-height: 1.3; }
+.moe-subpanel.peach { --sub-accent: var(--sub-accent-peach); }
+.moe-subpanel.mint { --sub-accent: var(--sub-accent-mint); }
+.moe-subpanel.coral { --sub-accent: var(--series-6); }
+.moe-subpanel.skyblue { --sub-accent: var(--series-1); }
+.moe-subpanel.gray { --sub-accent: var(--text-secondary); }
+.moe-subpanel.lightred { --sub-accent: var(--light-red); }
+.moe-subblocks { display: flex; gap: 5px; margin: 4px 0 6px; }
+.moe-subblock {
+  position: relative; flex: 1; text-align: center; padding: 5px 4px; border-radius: 8px;
+  font-size: 17px; font-weight: 850; letter-spacing: 0.01em; color: var(--sub-accent); line-height: 1.3;
+}
+.moe-subblock-pop {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  width: 220px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.22); padding: 9px 11px; z-index: 40; text-align: left;
+  font-size: 11px; font-weight: 400; color: var(--text-secondary); line-height: 1.45; white-space: normal;
+  opacity: 0; pointer-events: none; transition: opacity 0.12s ease;
+}
+.moe-subblock-pop b { display: block; color: var(--text-primary); font-weight: 700; margin-bottom: 3px; }
+.moe-subblock:hover .moe-subblock-pop { opacity: 1; }
+/* DeepSeek: always-on shared-expert lane (2 lit cells beside the routed grid). */
+.shared-lane { display: flex; gap: 5px; justify-content: center; }
+.shared-cell {
+  width: 30px; height: 30px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #fff; letter-spacing: 0.02em;
+  background: #e0912f; box-shadow: 0 1px 5px color-mix(in srgb, #e0912f 45%, transparent);
+}
+/* PerTokenRouting dense-layer notice (DeepSeek layer 1). */
+.ptr-dense-note { padding: 22px 10px; text-align: center; }
+/* JetMoE MoA: selectable attention-expert chips on the attention block + router modal. */
+.moa-expert-chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.moa-expert-chip {
+  font-family: var(--font-label, ui-monospace, monospace); font-size: 11px; font-weight: 700;
+  padding: 4px 10px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  color: var(--series-1); background: color-mix(in srgb, var(--series-1) 12%, var(--surface-1));
+  border: 1.5px solid color-mix(in srgb, var(--series-1) 45%, transparent); transition: background 0.12s ease;
+}
+.moa-expert-chip:not(.static):hover { background: color-mix(in srgb, var(--series-1) 22%, var(--surface-1)); }
+/* The attention modal's step-2 chips: the router's result, not a control. Same chip, no affordance. */
+.moa-expert-chip.static { cursor: default; }
+.moa-expert-chip.active { color: #fff; background: var(--series-1); border-color: var(--series-1); }
+.pdf-nt-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13.5px; margin: 4px 0; }
+/* Truncates only below 1141px — see the `.pdf-block.out-narrow` media query. */
+.pdf-nt-row .tok { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pdf-nt-row .tok.top { color: var(--seq-500); font-weight: 700; }
+.pdf-nt-row .bar-track { flex: 1; background: var(--gridline); border-radius: 3px; height: 8px; overflow: hidden; }
+.pdf-nt-row .bar-fill { height: 100%; background: var(--seq-500); border-radius: 3px; }
+.pdf-nt-row .pct { flex: 0 0 auto; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); }

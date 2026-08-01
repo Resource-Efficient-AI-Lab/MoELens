@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+@import "@fontsource/newsreader/400.css";
+@import "@fontsource/newsreader/500.css";
+@import "@fontsource/newsreader/500-italic.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+@theme {
+  /* Signal colors — see DESIGN.md "The Rarity Rule": amber means "selected," full stop.
+     L values tuned so white text on either fill clears WCAG AA (4.5:1) — amber's yellow-leaning
+     hue reads photometrically brighter than its OKLCH L suggests, so it sits lower than a first
+     guess would put it. */
+  --color-amber-signal: oklch(0.55 0.15 57);
+  --color-violet-counterpoint: oklch(0.4 0.16 258);
+
+  /* Neutrals */
+  --color-paper: oklch(1 0 0);
+  --color-surface: oklch(0.96 0.004 260);
+  --color-ink: oklch(0.2 0.01 260);
+  --color-muted: oklch(0.5 0.008 260);
+
+  /* Typography */
+  --font-display: "Newsreader", Georgia, serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-label: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Motion — ease-out-expo per DESIGN.md motion doctrine */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+/* DESIGN.md "Overlay-float": reserved for the tour narration card and tooltips only. */
+.shadow-overlay-float {
+  box-shadow: 0 8px 32px oklch(0.2 0.01 260 / 0.12);
+}
+
+/* Direction-aware layer swap on the Journey stage: the new layer slides in from the side it's
+   travelling toward. Applied to a React-keyed wrapper so it replays on each layer change.
+   Neutralized under prefers-reduced-motion by the block below. */
+@keyframes layer-enter-forward {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes layer-enter-back {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.layer-enter-forward {
+  animation: layer-enter-forward 360ms var(--ease-out-expo);
+}
+.layer-enter-back {
+  animation: layer-enter-back 360ms var(--ease-out-expo);
+}
+
+/* Looping halo on the highest-weight expert while a layer is current (RouterDiagram pulseTopExpert).
+   It is an absolutely-positioned HTML div under the SVG, not an SVG <circle>: Chrome does not
+   composite animated SVG content, so the same infinite loop on a <circle> repainted the entire
+   router SVG every frame (measured 27.9ms median frame on the 64-expert fan under 6× CPU throttle,
+   20.9ms on JetMoE's 8-node one, against 6.9ms here). `will-change` on the circle was measured and
+   did not help. Suppressed under reduced motion both by the block below AND by not rendering the
+   element at all (pulseTopExpert=false). */
+@keyframes expert-pulse {
+  from {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+}
+.expert-pulse-dot {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--light-red, var(--color-amber-signal));
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: expert-pulse 1600ms var(--ease-out-expo) infinite;
+}
+
+/* Tokens fanning toward the sidebar on the Tokens panel: each chip drifts in from the right and
+   settles, staggered by index via inline animation-delay. Keyed by example in React so it replays
+   when the prompt changes. */
+@keyframes token-fly {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.token-fly {
+  animation: token-fly 420ms var(--ease-out-expo) both;
+}
+
+/* Caption crossfade on the Journey stage: the keyed block fades up when the milestone changes. */
+@keyframes caption-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.caption-fade {
+  animation: caption-fade 320ms var(--ease-out-expo);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

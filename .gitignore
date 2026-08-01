@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Local directories
+.vercel
+
+# Vite timestamp files
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.env*
+
+# NOTE: /raw-data is deliberately NOT listed here — see the "NEVER git add These Files" section of
+# CLAUDE.md. It holds the raw (unrounded, un-split) trace JSONs, which are far too large to commit
+# (the JetMoE one alone is over GitHub's 100MB hard limit). Ignoring it hid it from file-tagging in
+# Claude Code, so it is untracked-but-visible instead, the same arrangement as *.md / .claude/ /
+# docs/. It must never be staged.
