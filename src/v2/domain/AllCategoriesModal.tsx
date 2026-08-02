@@ -1,11 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ExpertGridSection, fitExpertGridTiles, TILE_CAPTION_H } from './ExpertGridSection';
 import { fitHistogramCards, HistogramSection } from './HistogramSection';
+import { LayerSlider } from './LayerSlider';
 import type { DomainSpecializationData } from '../../data/types';
 
 interface AllCategoriesModalProps {
   data: DomainSpecializationData;
   layer: number;
+  /** First layer that routes between experts, same floor the sub-tab's slider clamps to. */
+  minLayer: number;
+  /** Writes straight back to the tab's shared layer state, so closing the window leaves the
+   *  sub-tab on whatever layer the reader walked to in here rather than snapping back. */
+  onLayerChange: (layer: number) => void;
   /** Which of the two views of `activation_rate[category][layer]` to draw — the same choice the
    *  sub-tab's `.view-switch` makes, mirrored rather than re-offered, so the window always shows
    *  what the reader was already looking at. */
@@ -32,6 +38,8 @@ interface AllCategoriesModalProps {
 export function AllCategoriesModal({
   data,
   layer,
+  minLayer,
+  onLayerChange,
   viewMode,
   onBarClick,
   suppressEscape,
@@ -143,10 +151,23 @@ export function AllCategoriesModal({
           and a dialog that sized to its content would make that measurement chase itself. */}
       <div className="moe-root flex h-screen w-full max-w-[1400px] flex-col overflow-hidden rounded-md bg-paper shadow-overlay-float">
         <div className="flex items-start justify-between gap-3 border-b border-ink/10 px-5 py-3">
-          <div>
-            <h3 className="font-title text-base font-semibold text-ink">
-              All {data.domains.length} categories · layer {layer + 1} / {data.num_layers}
-            </h3>
+          <div className="min-w-0 flex-1">
+            {/* The layer readout moved out of the title and into the slider beside it, rather
+                than being kept in both: two live "20 / 28"s on one line read as two different
+                numbers that happen to agree. The title keeps its landmark position and the
+                slider sits exactly where that readout was. */}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+              <h3 className="font-title text-base font-semibold text-ink">
+                All {data.domains.length} categories
+              </h3>
+              <LayerSlider
+                layer={layer}
+                numLayers={data.num_layers}
+                minLayer={minLayer}
+                id="all-categories-layer-slider"
+                onChange={onLayerChange}
+              />
+            </div>
             <p className="mt-0.5 font-body text-xs text-muted">
               {viewMode === 'grid'
                 ? `Each grid is one category's ${data.num_experts} experts at this layer; rings mark its ${data.top_k_experts} most-used. Hover a cell for its tokens.`

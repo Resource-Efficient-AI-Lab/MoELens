@@ -5,6 +5,10 @@ interface LayerSliderProps {
    *  Below this the per-expert arrays are all zeros and every view would show fabricated
    *  structure, so the slider simply can't reach them. */
   minLayer?: number;
+  /** Element id for the range input, so the two live instances (the sub-tab's control row and
+   *  AllCategoriesModal's header, both mounted while that window is open) don't collide — a
+   *  duplicate id silently points the second `<label htmlFor>` at the first input. */
+  id?: string;
   onChange: (layer: number) => void;
 }
 
@@ -13,7 +17,13 @@ interface LayerSliderProps {
  * heat-grid/histogram toggle so flipping the view compares the same layer rather than resetting
  * it, and it holds its layer for the Top-experts sub-tab to jump to.
  */
-export function LayerSlider({ layer, numLayers, minLayer = 0, onChange }: LayerSliderProps) {
+export function LayerSlider({
+  layer,
+  numLayers,
+  minLayer = 0,
+  id = 'domain-layer-slider',
+  onChange,
+}: LayerSliderProps) {
   return (
     // Track and footnote sit side by side on one 32px band, so this control is exactly as tall as
     // the category pills next to it on every model — stacking the footnote underneath used to make
@@ -27,11 +37,11 @@ export function LayerSlider({ layer, numLayers, minLayer = 0, onChange }: LayerS
           control in the row that overhung the band. `w-80` is a definite width on purpose: as a
           flex item inside a flex item, a percentage one resolves circularly. */}
       <div className="flex h-8 w-80 max-w-full items-center gap-2">
-        <label htmlFor="domain-layer-slider" className="font-label text-xs text-muted">
+        <label htmlFor={id} className="font-label text-xs text-muted">
           Layer
         </label>
         <input
-          id="domain-layer-slider"
+          id={id}
           type="range"
           min={minLayer}
           max={numLayers - 1}

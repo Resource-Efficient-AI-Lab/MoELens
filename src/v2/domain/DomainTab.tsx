@@ -298,6 +298,8 @@ function DomainTabBody({
         <AllCategoriesModal
           data={data}
           layer={layer}
+          minLayer={minLayer}
+          onLayerChange={setLayer}
           viewMode={viewMode}
           onBarClick={(category, expert) => setCell({ category, layer, expert })}
           suppressEscape={cell !== null}
