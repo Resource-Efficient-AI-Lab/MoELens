@@ -320,7 +320,8 @@ svg.moe-svg { width: 100%; height: auto; display: block; }
 .layer-caption { font-size: 11px; fill: var(--text-muted); }
 
 .tooltip {
-  position: fixed; pointer-events: none; z-index: 50;
+  /* 130: above the math modal (100) and tour overlay (120) — data-tip cells live inside the modal too */
+  position: fixed; pointer-events: none; z-index: 130;
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px; font-size: 12px; color: var(--text-primary);
   box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-width: 220px; opacity: 0; transition: opacity 0.08s;

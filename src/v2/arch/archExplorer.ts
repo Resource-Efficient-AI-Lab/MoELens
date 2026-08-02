@@ -606,9 +606,10 @@ export function bootArchExplorer(
   // base is --page, NOT --surface-2 — .moe-root does not define --surface-2, so a var() on it makes
   // the whole background declaration invalid and the cell renders transparent with no hatch at all.
   const HATCH_BG = 'repeating-linear-gradient(45deg, transparent 0 2.5px, color-mix(in srgb, var(--text-muted) 60%, transparent) 2.5px 4px), var(--page)';
-  // Tooltips go in a title="" attribute, so the label is quote-escaped and every quotation mark
-  // around it in the tip strings below is a curly one — a straight " there closes the attribute and
-  // truncates the tooltip at the token name.
+  // Tooltips go in a data-tip="" attribute (shown instantly via the shared #tooltip div — a
+  // title="" would add the browser's fixed ~1s hover delay), so the label is quote-escaped and
+  // every quotation mark around it in the tip strings below is a curly one — a straight " there
+  // closes the attribute and truncates the tooltip at the token name.
   function tokLabel(i: number) { return escapeHtml((tokens[i] && tokens[i].text.trim()) || '·').replace(/"/g, '&quot;'); }
   // Same ramp as gridHTML, but key > query is hatched instead of coloured.
   function attnGridHTML(grid: number[][], cellPx: number) {
@@ -624,7 +625,7 @@ export function bootArchExplorer(
       const tip = masked
         ? 'masked (causal): M = −∞ before softmax, so this weight is exactly 0'
         : 'query “' + tokLabel(r) + '” → key “' + tokLabel(c) + '”: ' + (v * 100).toFixed(2) + '%';
-      html += '<div class="mm-cell" title="' + tip + '" style="width:' + cellPx + 'px;height:' + cellPx + 'px;background:' + bg + ';animation-delay:' + mmDelay(idx++, total) + 'ms;"></div>';
+      html += '<div class="mm-cell" data-tip="' + tip + '" style="width:' + cellPx + 'px;height:' + cellPx + 'px;background:' + bg + ';animation-delay:' + mmDelay(idx++, total) + 'ms;"></div>';
     }));
     html += '</div>';
     return html;
@@ -640,7 +641,7 @@ export function bootArchExplorer(
         const tip = masked
           ? 'M = −∞: key “' + tokLabel(c) + '” comes after query “' + tokLabel(r) + '”, so softmax sends this to exactly 0'
           : 'M = 0: key “' + tokLabel(c) + '” is at or before query “' + tokLabel(r) + '”, so the score passes through unchanged';
-        html += '<div class="mm-cell" title="' + tip + '" style="display:flex;align-items:center;justify-content:center;' +
+        html += '<div class="mm-cell" data-tip="' + tip + '" style="display:flex;align-items:center;justify-content:center;' +
           'width:' + cellPx + 'px;height:' + cellPx + 'px;font-size:' + Math.max(7, Math.round(cellPx * 0.42)) + 'px;' +
           'color:var(--text-muted);background:' + (masked ? HATCH_BG : 'var(--surface-1)') + ';animation-delay:' + mmDelay(idx++, n * n) + 'ms;">' +
           (masked ? '' : '0') + '</div>';
@@ -971,7 +972,7 @@ export function bootArchExplorer(
   };
   // Empty the header slot on the way out as well as on the way in: every opener sets it, but a
   // closed modal holding the last stage's sub-tabs is a bar with no panels behind it.
-  const closeMathModal = () => { mathBackdrop.classList.remove('open'); mathHeaderSlot.innerHTML = ''; };
+  const closeMathModal = () => { mathBackdrop.classList.remove('open'); mathHeaderSlot.innerHTML = ''; hideTip(); };
   byId('math-modal-close').onclick = closeMathModal;
   mathBackdrop.onclick = (ev) => { if (ev.target === mathBackdrop) closeMathModal(); };
 
@@ -1008,6 +1009,21 @@ export function bootArchExplorer(
 
   const pdfRow = byId('pdf-flow-row');
   const moeGridBackdrop = byId('moe-grid-backdrop');
+
+  // Instant tooltips for data-tip cells (the attention map + mask M grids). Delegated on the two
+  // stable containers — the cells themselves are rebuilt on every layer/head/prompt change, so a
+  // per-cell listener would be lost on the next innerHTML swap. dataset.tip comes back decoded,
+  // so it is re-escaped before it goes into the tooltip's innerHTML.
+  const wireDataTips = (container: HTMLElement) => {
+    container.addEventListener('mousemove', (ev: MouseEvent) => {
+      const el = (ev.target as Element).closest('[data-tip]') as HTMLElement | null;
+      if (!el) { hideTip(); return; }
+      showTip('<div style="max-width:220px">' + escapeHtml(el.dataset.tip || '') + '</div>', ev.clientX, ev.clientY);
+    });
+    container.addEventListener('mouseleave', hideTip);
+  };
+  wireDataTips(pdfRow);
+  wireDataTips(mathContent);
 
   // ---- live narration: one sentence per flow block, shown above the row and driven by
   // both clicking a block and the guided tour below. Index matches block push order in
