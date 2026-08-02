@@ -1715,7 +1715,7 @@ export function bootArchExplorer(
           '<div class="moe-subpanel lightred" id="moe-shared-panel" style="cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;">' +
           '<h5 style="margin:0;">Shared experts</h5>' +
           '<div class="shared-lane">' + sharedCells + '</div>' +
-          '<div style="font-size:9px;color:var(--text-muted);">always on · every token</div>' +
+          '<div style="font-size:9px;color:var(--text-muted);text-align:center;">always on · every token</div>' +
           '</div>' +
           '<div class="moe-subpanel lightred" id="moe-combined-output-panel" style="cursor:pointer;display:flex;align-items:center;justify-content:center;">' +
           '<h5 style="margin:0;">Combined Weighted Output</h5>' +

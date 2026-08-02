@@ -774,7 +774,7 @@ footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line
   width: 30px; height: 30px; border-radius: 7px;
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 800; color: #fff; letter-spacing: 0.02em;
-  background: #e0912f; box-shadow: 0 1px 5px color-mix(in srgb, #e0912f 45%, transparent);
+  background: var(--light-red); box-shadow: 0 1px 5px color-mix(in srgb, var(--light-red) 45%, transparent);
 }
 /* PerTokenRouting dense-layer notice (DeepSeek layer 1). */
 .ptr-dense-note { padding: 22px 10px; text-align: center; }
