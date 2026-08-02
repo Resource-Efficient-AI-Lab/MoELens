@@ -29,6 +29,9 @@ interface PromptFlowLayer {
 
 export interface PromptFlow {
   prompt: string;
+  /** HF model id (e.g. "deepseek-ai/deepseek-moe-16b-base") — present in every shipped trace;
+   *  keys the per-model RMSNorm ε in archExplorer.ts. */
+  model_id?: string;
   /** Category this prompt belongs to (see src/data/categories.ts) — groups the prompt <select>. */
   domain: string;
   num_layers: number;
