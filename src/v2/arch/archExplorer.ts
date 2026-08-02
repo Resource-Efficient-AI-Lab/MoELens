@@ -59,14 +59,12 @@ export function bootArchExplorer(
   const animLayer = byId<any>('routing-anim-layer') as SVGGElement;
   const layerCaption = byId<any>('layer-caption') as SVGTextElement;
   const tooltip = byId('tooltip');
-  const legendEl = byId('token-legend');
   const playBtn = byId<HTMLButtonElement>('play-btn');
   const animateBtn = byId<HTMLButtonElement>('animate-route-btn');
 
   // fresh slate: re-run whenever the prompt changes
   rowsLayer.innerHTML = '';
   axisLayer.innerHTML = '';
-  legendEl.innerHTML = '';
   byId('math-backdrop').classList.remove('open');
   byId('moe-grid-backdrop').classList.remove('open');
 
@@ -126,8 +124,8 @@ export function bootArchExplorer(
   // palette's blue — while saturation and lightness are lifted from --series-1 itself, which is
   // theme-defined, so the generated set tracks light/dark mode without a second table.
   // Returns hex, not oklch: the heatmap ramp below runs on hexToRgb/lerpRgb.
-  // Every token-colored mark (legend swatch, row-label dot, routing dot, and now the row's own
-  // heatmap ramp) reads through here, so they can never drift apart.
+  // Every token-colored mark (row-label dot, routing dot, and the row's own heatmap ramp) reads
+  // through here, so they can never drift apart.
   function tokenColor(i: number) {
     const base = getComputedStyle(root).getPropertyValue('--series-1').trim() || '#2a78d6';
     const [h0, s, l] = rgbToHsl(hexToRgb(base));
@@ -302,7 +300,7 @@ export function bootArchExplorer(
       (body ? parseFloat(getComputedStyle(body).paddingTop) + parseFloat(getComputedStyle(body).paddingBottom) : 20);
     let controlsH = 0;
     if (body) {
-      ['.layer-bar', '#token-legend', '.scale-legend'].forEach((sel) => {
+      ['.layer-bar', '.scale-legend'].forEach((sel) => {
         const el2 = body.querySelector(sel);
         if (el2) controlsH += el2.getBoundingClientRect().height;
       });
@@ -313,19 +311,11 @@ export function bootArchExplorer(
   fitGridModalHeight();
   window.addEventListener('resize', fitGridModalHeight);
 
-  // ---- legend ----
+  // ---- isolation state ----
+  // The token legend that used to sit above the grid (a swatch + label chip per token, each an
+  // isolate toggle) was removed 2026-08-01: every row already carries its own hue on its label dot,
+  // so the chips restated the colour key, and the row labels are the surviving isolate control.
   let isolated: number | null = null;
-  tokens.forEach((t, i) => {
-    const item = document.createElement('div');
-    item.className = 'legend-item';
-    item.dataset.token = String(i);
-    item.innerHTML = '<span class="legend-swatch" style="background:' + tokenColor(i) + '"></span><span>' +
-      escapeHtml(t.text.trim() || '(space)') + '</span>';
-    // applyIsolate, not render: isolating a token filters the view, it does not change the
-    // reading, so the grid must not re-pop underneath the click.
-    item.addEventListener('click', () => { isolated = isolated === i ? null : i; applyIsolate(); animateRouting(); });
-    legendEl.appendChild(item);
-  });
 
   // ---- current layer (the 1–16 pager now lives in the React modal shell; see ArchitectureTab) ----
   let currentLayer = 0;
@@ -428,7 +418,7 @@ export function bootArchExplorer(
     readoutLayer.innerHTML = '';
   }
 
-  /** Legend/row-label click dimming. Applied to the per-row groups rather than by re-rendering,
+  /** Row-label click dimming. Applied to the per-row groups rather than by re-rendering,
    *  so isolating a token does not re-fire the pop (it filters the view, it does not change the
    *  reading) and does not fight GSAP's inline opacity on the receded field. */
   function applyIsolate() {
@@ -441,15 +431,6 @@ export function bootArchExplorer(
     });
   }
 
-  const moeGridNarrationEl = byId('moe-grid-narration');
-  function defaultMoeGridNarration() {
-    if (!moeGridNarrationEl) return;
-    moeGridNarrationEl.textContent = 'Layer ' + (currentLayer + 1) + ' of ' + DATA.num_layers +
-      ': every token’s real hidden state is scored against all ' + DATA.num_experts + ' experts, then ' +
-      'softmaxed into a probability per expert. The top ' + DATA.top_k_experts + ' (lifted forward, numbered) are the ' +
-      'only ones actually multiplied. Click ▶ Step through layers to watch this repeat down the network.';
-  }
-
   function render() {
     const layer = DATA.layers[currentLayer];
 
@@ -459,11 +440,6 @@ export function bootArchExplorer(
       layerCaption.textContent = 'Layer ' + (currentLayer + 1) + ' of ' + DATA.num_layers +
         ': dense feed-forward layer, no router, no experts to score';
       clearGrid();
-      if (moeGridNarrationEl) {
-        moeGridNarrationEl.textContent = 'Layer ' + (currentLayer + 1) + ' of ' + DATA.num_layers +
-          ' is a dense layer: every token runs through one shared feed-forward network, so there is no ' +
-          'router and no per-expert selection to display. Switch to any later layer to see MoE routing.';
-      }
       return;
     }
 
@@ -482,7 +458,7 @@ export function bootArchExplorer(
       const hue = tokenColor(ti);
       const maxP = Math.max(...tt.all_probs, 1e-9);
 
-      // Per-row group: carries the isolate dimming, so nothing has to re-render on a legend click.
+      // Per-row group: carries the isolate dimming, so nothing has to re-render on a row-label click.
       const rowG = el('g', { class: 'token-cells', 'data-token': ti, opacity: dim ? 0.25 : 1 });
       // The 56 non-activated cells share one group (one GSAP target instead of 56, and identical
       // on screen because they all recede to the same opacity). It is appended FIRST so the
@@ -532,7 +508,6 @@ export function bootArchExplorer(
 
   // ---- animated routing: a line + traveling dot from each visible token to each of its top-8 experts ----
   let routeTimers: ReturnType<typeof setTimeout>[] = [];
-  let narrationRevertTimer: ReturnType<typeof setTimeout> | undefined;
   function animateRouting() {
     animLayer.innerHTML = '';
     routeTimers.forEach(clearTimeout);
@@ -540,14 +515,6 @@ export function bootArchExplorer(
     const layer = DATA.layers[currentLayer];
     if (!layer.tokens) return; // DeepSeek dense layer — nothing to route
     const rowGap = 0.22, withinGap = 0.05, dur = 0.55, glowMs = 380;
-
-    if (moeGridNarrationEl) {
-      moeGridNarrationEl.textContent = 'Watching each token’s real top-' + DATA.top_k_experts +
-        ' routing decisions fire, one row at a time. Each traveling dot is one real (token → expert) selection, colored by token.';
-      const totalMs = (tokens.length * rowGap + dur + 0.2) * 1000;
-      clearTimeout(narrationRevertTimer);
-      narrationRevertTimer = setTimeout(defaultMoeGridNarration, totalMs);
-    }
 
     tokens.forEach((_t, ti) => {
       if (isolated !== null && isolated !== ti) return;
@@ -983,7 +950,9 @@ export function bootArchExplorer(
     if (!g) return;
     const i = +(g.dataset.token || 0);
     isolated = isolated === i ? null : i;
-    applyIsolate(); // see the legend handler: a filter, not a new reading — no re-pop
+    // applyIsolate, not render: isolating a token filters the view, it does not change the
+    // reading, so the grid must not re-pop underneath the click.
+    applyIsolate();
     animateRouting();
   };
 
@@ -2686,7 +2655,6 @@ export function bootArchExplorer(
     swipeMM.revert();
     routeTimers.forEach(clearTimeout);
     routeTimers = [];
-    clearTimeout(narrationRevertTimer);
     gsap.killTweensOf(cellsLayer.querySelectorAll('g.cell-rest, g.cell-top'));
     killAttnTimeline();
   };

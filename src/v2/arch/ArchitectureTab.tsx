@@ -314,7 +314,6 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
                 flex: '0 0 auto',
               }}
             >
-              <div className="legend" id="token-legend" style={{ margin: '8px 0 6px' }}></div>
               {/* One item only: each row now carries its own token's hue, so there is no single
                   colour to swatch and no activated/not pair to explain — the pop does that. */}
               <div className="scale-legend" style={{ margin: '0 0 6px' }}>
@@ -323,11 +322,6 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
                   {flow.num_experts} experts; each row is coloured by its own token
                 </span>
               </div>
-              <p
-                className="math-hint"
-                id="moe-grid-narration"
-                style={{ margin: '0 0 8px', fontWeight: 600, color: 'var(--text-primary)' }}
-              ></p>
               <svg
                 className="moe-svg"
                 id="moe-svg"
