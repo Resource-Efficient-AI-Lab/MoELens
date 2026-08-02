@@ -25,6 +25,13 @@
  */
 import gsap from 'gsap';
 import type { PromptFlow } from './types';
+import { sequentialBlue, tokenColorAt, tokenRampColor } from './colorRamps';
+import {
+  ATTN_STEPS_MHA, ATTN_STEPS_MOA, MASK_LEGEND, TRANSPOSE_NOTE,
+  attnMapGrid, attnPanel, attnSubTabBar, beat, buildAttnGridHTML, buildGridHTML,
+  buildHeadStripHTML, buildMaskGridHTML, buildStripHTML, diagramGrid, diagramRow, dotPhrase,
+  escapeHtml, expertStripWithNumbers, matBlock, opSpan, padGridRows, resultBlock, wDims,
+} from './mathDiagram';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,25 +39,76 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
 }
 
+/** One math-modal stage's rendered content. Built here (string builders, as in the prototype) and
+ *  handed to React, which owns whether the modal is open and commits this into the DOM. */
+export interface StagePayload {
+  /** Plain text for `#math-modal-title`. */
+  title: string;
+  /** HTML for `#math-modal-header-slot` — only stages with their own sub-tab bar fill it. */
+  headerExtra: string;
+  /** HTML for `#math-content`. */
+  html: string;
+}
+
+/** What `onOpenStage` reports. `kind` is the one distinction React has to keep: a `flow` stage is
+ *  built once and then left alone (a layer change under it must NOT rebuild it — that is today's
+ *  behaviour and `buildFlowStage` nulls `selected` precisely to guarantee it), whereas a `cell`
+ *  popup is re-reported by `setLayer` on every layer change and so does rebuild. */
+export type OpenStage =
+  | { kind: 'flow'; stageKey: string; attnTab: string; payload: StagePayload }
+  | { kind: 'cell'; payload: StagePayload };
+
+/** Which sub-tab the Router modal is showing. React owns it (`routerSubTab`); the island needs it
+ *  only to decide whether it may size the modal, and receives it as a plain argument rather than
+ *  reading React's `data-router-tab` attribute back off the DOM. */
+export type RouterTabRegime = 'per-token' | 'all-tokens';
+
 /** Small exposed API so the React modal shell can drive the (otherwise imperative) heatmap: the
  *  shared layer pager calls `setLayer`, and internal layer changes (▶ Step through layers, the
  *  flow ‹ › nav) report back through `onLayerChange` so React's `currentLayer` stays in sync. */
 export interface ArchExplorerApi {
+  /** Wires the just-committed stage's controls and starts its reveal. React calls this from an
+   *  effect keyed on the payload, i.e. once per open, after the HTML is in the DOM. */
+  mountStage: () => void;
+  /** Kills any live attention reveal. React calls this from that effect's CLEANUP, so a timeline
+   *  can never tween nodes the next render is about to replace, and on modal close. */
+  killAttnTimeline: () => void;
+  /** Hides the shared tooltip. Closing the math modal used to do this imperatively; React's close
+   *  handler owns it now and must keep doing it, or a tip left over the modal outlives it. */
+  hideTip: () => void;
+  /** Highlights the guided tour's current block, or clears it with null. React owns tourOpen /
+   *  tourStep; this stays here because it indexes `liveBlockEls()`, the positional list that skips
+   *  the deck-swipe clone's blocks, and it also does the `scrollIntoView` that brings the block
+   *  into the flow row's scroller. */
+  highlightTourBlock: (step: number | null) => void;
   cleanup: () => void;
   setLayer: (layer: number) => void;
   /** Replays the All-tokens grid's activated-expert pop. The Router modal opens on the Per-token
    *  sub-tab, so the grid is behind display:none on arrival and its pop would otherwise have
    *  played unseen — the sub-tab button calls this instead. */
   replayPop: () => void;
-  /** Re-fits the Router modal's height to the All-tokens heatmap. It is a no-op while the modal is
-   *  on the Per-token sub-tab (React owns the height there — see `fitGridModalHeight`), so React
-   *  calls it when that sub-tab becomes active. */
-  fitGridHeight: () => void;
+  /** Re-fits the Router modal's height to the All-tokens heatmap, AND tells the island which sub-tab
+   *  is showing. It is a no-op on 'per-token' (React owns the height there — see
+   *  `fitGridModalHeight`), so React may call it on every sub-tab change; the regime it passes is
+   *  also what the resize listener and the router-panel click will use until the next call. */
+  fitGridHeight: (routerTab: RouterTabRegime) => void;
+  /** Replays the All-tokens grid's routing animation. ▶ Replay routing is React-rendered chrome, so
+   *  its click lands here rather than on an `onclick` this file assigns to a node it does not own. */
+  animateRouting: () => void;
+  /** Opens one of the flow row's math stages. The three blocks React renders (Embedding's token
+   *  chips aside, which stay delegated on pdfRow) reach the same builders through here, so a
+   *  React-owned block and an island-owned one open the modal by exactly one code path. */
+  openStage: (stageKey: string) => void;
 }
 
 export function bootArchExplorer(
   DATA: PromptFlow,
-  opts?: { onLayerChange?: (layer: number) => void }
+  opts?: {
+    onLayerChange?: (layer: number) => void;
+    /** Every internal opener of the math modal (block clicks, token chips, the head ‹ ›, the
+     *  routing-grid cell click) routes through here into React state. */
+    onOpenStage?: (stage: OpenStage) => void;
+  }
 ): ArchExplorerApi {
   const root = document.querySelector('.moe-root') as HTMLElement;
   const svg = byId<any>('moe-svg') as SVGSVGElement;
@@ -60,78 +118,27 @@ export function bootArchExplorer(
   const layerCaption = byId<any>('layer-caption') as SVGTextElement;
   const tooltip = byId('tooltip');
   const playBtn = byId<HTMLButtonElement>('play-btn');
-  const animateBtn = byId<HTMLButtonElement>('animate-route-btn');
+  // `#animate-route-btn` (▶ Replay routing) is deliberately NOT resolved here any more: React owns
+  // its click and calls `animateRouting` through the api. See that api member.
 
-  // fresh slate: re-run whenever the prompt changes
+  // fresh slate: re-run whenever the prompt changes. The math modal is not closed here any more —
+  // React owns it and resets `mathStage` alongside this boot (see ArchitectureTab), which it must,
+  // or a stale stage would be left rendering HTML built from the previous prompt's closure.
   rowsLayer.innerHTML = '';
   axisLayer.innerHTML = '';
-  byId('math-backdrop').classList.remove('open');
   byId('moe-grid-backdrop').classList.remove('open');
 
-  byId('prompt-text').textContent = '"' + DATA.prompt + '"';
+  // `#prompt-text` and the standalone "Parameter count" panel are React's now (2026-08-02).
+  // Both were imperative writes from here: a `textContent` assignment wrapping `DATA.prompt` in
+  // STRAIGHT double quotes, and a `renderParamCountPanel` IIFE with one innerHTML branch per
+  // architecture. Neither reads per-layer or per-token state — only DATA fields and arithmetic —
+  // so both belong to the render that already owns `flow`. The panel builder moved VERBATIM to
+  // paramPanel.ts (`buildParamCountPanelHtml`), gated character-for-character against this code on
+  // all three models before it was wired up; ArchitectureTab memoises it on `flow`.
 
-  // ---- standalone parameter-count panel (model-level facts, same regardless of which cell you click) ----
-  (function renderParamCountPanel() {
-    const fmtN = (n: number) => n.toLocaleString('en-US');
-    // --- JetMoE: sparse on both sides (routed attention + routed FFN), 8B total / ~2B active ---
-    if (DATA.layer_flow.is_moa) {
-      const H = DATA.hidden_size, I = DATA.intermediate_size, E = DATA.num_experts, K = DATA.top_k_experts;
-      const aE = DATA.layer_flow.attn_num_experts ?? E, aK = DATA.layer_flow.attn_top_k ?? K;
-      const perExpert = 3 * H * I;
-      const perAttnExpert = 2 * H * H; // each attention expert owns its own W_q + W_o
-      const sharedKV = 2 * H * H; // W_k + W_v are shared across all attention experts
-      const perLayer = E * perExpert + aE * perAttnExpert + sharedKV;
-      const allLayers = DATA.num_layers * perLayer;
-      byId('param-count-panel').innerHTML =
-        '<h2 style="font-size:14px;font-weight:650;margin:0 0 10px;">Parameter count</h2>' +
-        '<div class="math-eq">params/FFN expert <span class="op">=</span> 3 <span class="op">×</span> (' + H + ' <span class="op">×</span> ' + I + ') <span class="op">=</span> <span class="val">' + fmtN(perExpert) + '</span>\n' +
-        'params/attn expert <span class="op">=</span> 2 <span class="op">×</span> (' + H + ' <span class="op">×</span> ' + H + ') <span class="op">=</span> <span class="val">' + fmtN(perAttnExpert) + '</span> <span class="op">(its own W_q + W_o)</span>\n' +
-        'params/layer  <span class="op">=</span> ' + E + ' <span class="op">×</span> ' + fmtN(perExpert) + ' <span class="op">+</span> ' + aE + ' <span class="op">×</span> ' + fmtN(perAttnExpert) + ' <span class="op">+</span> shared W_kv <span class="op">=</span> <span class="val">' + fmtN(perLayer) + '</span>\n' +
-        'all ' + DATA.num_layers + ' layers  <span class="op">=</span> <span class="val">≈ ' + (allLayers / 1e9).toFixed(2) + 'B params</span>, but only ' + aK + '/' + aE + ' attention experts and ' + K + '/' + E + ' FFN experts run per token</div>' +
-        '<footer class="note">JetMoE is sparse on <b>both</b> sides: only ' + aK + ' of ' + aE + ' attention experts and ' + K + ' of ' + E + ' feed-forward experts are actually multiplied for any given token, the rest sit idle in memory. That two-way sparsity is why JetMoE-8B has ~' + (allLayers / 1e9).toFixed(1) + 'B total parameters but only ~2B "active" per token.</footer>';
-      return;
-    }
-    // --- DeepSeek: 64 routed (top-6) + 2 always-on shared + a dense layer 1, 16.4B / ~2.8B active ---
-    if (DATA.shared_experts) {
-      const H = DATA.hidden_size, I = DATA.intermediate_size, E = DATA.num_experts, K = DATA.top_k_experts;
-      const S = DATA.shared_experts;
-      const perExpert = 3 * H * I;
-      const perLayer = (E + S) * perExpert;
-      byId('param-count-panel').innerHTML =
-        '<h2 style="font-size:14px;font-weight:650;margin:0 0 10px;">Parameter count</h2>' +
-        '<div class="math-eq">params/routed expert <span class="op">=</span> 3 <span class="op">×</span> (' + H + ' <span class="op">×</span> ' + I + ') <span class="op">=</span> <span class="val">' + fmtN(perExpert) + '</span>\n' +
-        'params/MoE layer  <span class="op">=</span> (' + E + ' routed + ' + S + ' shared) <span class="op">×</span> ' + fmtN(perExpert) + ' <span class="op">=</span> <span class="val">' + fmtN(perLayer) + '</span>\n' +
-        'all ' + DATA.num_layers + ' layers (' + (DATA.num_layers - 1) + ' MoE + 1 dense)  <span class="op">=</span> <span class="val">≈ 16.4B params</span>, but only ' + K + ' routed + ' + S + ' shared experts run per token</div>' +
-        '<footer class="note">Only ' + (K + S) + ' of ' + (E + S) + ' feed-forward experts run per token (top-' + K + ' routed + ' + S + ' always-on shared); the other ' + (E - K) + ' routed experts sit idle. That sparsity is why DeepSeek-MoE-16B has ~16.4B total parameters but only ~2.8B "active" per token. Layer 1 is a single dense feed-forward layer with no routing.</footer>';
-      return;
-    }
-    const H0 = DATA.hidden_size, I0 = DATA.intermediate_size, E0 = DATA.num_experts, K0 = DATA.top_k_experts;
-    const perExpert = 3 * H0 * I0;
-    const perLayer = E0 * perExpert;
-    const allLayers = DATA.num_layers * perLayer;
-    const fmt = (n: number) => n.toLocaleString('en-US');
-    byId('param-count-panel').innerHTML =
-      '<h2 style="font-size:14px;font-weight:650;margin:0 0 10px;">Parameter count</h2>' +
-      '<div class="math-eq">params/expert <span class="op">=</span> 3 <span class="op">×</span> (' + H0 + ' <span class="op">×</span> ' + I0 + ') <span class="op">=</span> <span class="val">' + fmt(perExpert) + '</span>\n' +
-      'params/layer  <span class="op">=</span> ' + E0 + ' experts <span class="op">×</span> ' + fmt(perExpert) + ' <span class="op">=</span> <span class="val">' + fmt(perLayer) + '</span>\n' +
-      'all ' + DATA.num_layers + ' layers  <span class="op">=</span> <span class="val">≈ ' + (allLayers / 1e9).toFixed(2) + 'B params</span>, but only ' + K0 + '/' + E0 + ' experts run per token per layer</div>' +
-      '<footer class="note">Only ' + K0 + ' of ' + E0 + ' experts\' weights are actually multiplied for any given token while the rest sit idle in memory. That sparsity is why OLMoE has ~6.9B total parameters but only ~1.3B "active" per token.</footer>';
-  })();
-
-  // One hue per token, and never a repeat: the palette only defines six --series-* vars, so any
-  // prompt longer than six tokens used to wrap (token 7 wore token 1's blue). Hues are generated
-  // instead — evenly spaced around the wheel, anchored on --series-1 so the first token keeps the
-  // palette's blue — while saturation and lightness are lifted from --series-1 itself, which is
-  // theme-defined, so the generated set tracks light/dark mode without a second table.
-  // Returns hex, not oklch: the heatmap ramp below runs on hexToRgb/lerpRgb.
-  // Every token-colored mark (row-label dot, routing dot, and the row's own heatmap ramp) reads
-  // through here, so they can never drift apart.
-  function tokenColor(i: number) {
-    const base = getComputedStyle(root).getPropertyValue('--series-1').trim() || '#2a78d6';
-    const [h0, s, l] = rgbToHsl(hexToRgb(base));
-    const n = Math.max(DATA.tokens.length, 1);
-    return hslToHex((h0 + (i * 360) / n) % 360, s, l);
-  }
+  // One hue per token, and never a repeat (see colorRamps.ts). Bound here to `.moe-root` and this
+  // prompt's token count, so the ~8 call sites below read exactly as they did when it was a closure.
+  function tokenColor(i: number) { return tokenColorAt(root, i, DATA.tokens.length); }
 
   const tokens = DATA.tokens; // [{index, text}]
   const numTokens = tokens.length;
@@ -149,113 +156,15 @@ export function bootArchExplorer(
   function rowTop(ti: number) { return rowY0 + ti * rowStride; }
   function cellX(expIdx: number) { return areaX0 + expIdx * (cellW + gap); }
 
-  // ---- heatmap color ramps: light->dark within each of the two color families ----
-  function hexToRgb(h: string) { h = h.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
-  function rgbToHex(rgb: number[]) { return '#' + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join(''); }
-  function lerpRgb(a: number[], b: number[], t: number) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
-  // hex <-> HSL, used only by tokenColor: it keeps --series-1's saturation and lightness and
-  // rotates only the hue, so a generated token color sits in the same tonal family as the palette.
-  function rgbToHsl([r, g, b]: number[]): [number, number, number] {
-    const R = r / 255, G = g / 255, B = b / 255;
-    const max = Math.max(R, G, B), min = Math.min(R, G, B), d = max - min;
-    const l = (max + min) / 2;
-    if (d === 0) return [0, 0, l];
-    const s = d / (1 - Math.abs(2 * l - 1));
-    let h: number;
-    if (max === R) h = 60 * (((G - B) / d) % 6);
-    else if (max === G) h = 60 * ((B - R) / d + 2);
-    else h = 60 * ((R - G) / d + 4);
-    return [(h + 360) % 360, s, l];
-  }
-  function hslToHex(h: number, s: number, l: number) {
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-    const m = l - c / 2;
-    const seg = Math.floor(h / 60) % 6;
-    const [r, g, b] = [
-      [c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x],
-    ][seg];
-    return rgbToHex([(r + m) * 255, (g + m) * 255, (b + m) * 255]);
-  }
-
-  const WHITE = [255, 255, 255], BLACK = [0, 0, 0];
-
-  // The one ramp every router-probability view uses: a sequential scale per token, in that token's
-  // own hue. Pale at ~0 router probability, saturated at the token's maximum, and normalized ONCE
-  // across all experts. The prototype instead ran two ramps (blue for the top-k, peach for the
-  // rest) each normalized within its own group — dropped along with them, because separate
-  // normalizations let a 1.5% expert render as dark as a 17% one. One normalization means darkness
-  // states one honest thing, and the top-k land darkest because they *are* the highest
-  // probabilities. Used by the All-tokens grid and by the math modal's "D = Softmax Output" strip,
-  // which is the same 64 numbers for one token and so must not look like a different measurement.
-  function tokenRampColor(baseHex: string, t: number) {
-    const base = hexToRgb(baseHex);
-    const light = lerpRgb(base, WHITE, 0.88);
-    const dark = lerpRgb(base, BLACK, 0.30);
-    return rgbToHex(lerpRgb(light, dark, Math.max(0, Math.min(1, t))));
-  }
-
-  // The math modal's "D = Softmax Output" strip: the same 64 router probabilities the All-tokens
-  // grid draws for this token, so it is drawn the same way — the clicked token's own hue, one
-  // normalization across all experts, top-k numbered. Clicking a grid cell should open a bigger
-  // version of the row you clicked, not a differently-coloured second opinion of it.
-  // `gapPx` exists because the separator has to survive fractional device pixel ratios (Windows at
-  // 125% display scaling = DPR 1.25, the common case). Cells + gap form a pitch, and the pitch is
-  // what Chrome snaps: 22 + 1 = 23 → 28.75 device px at 1.25, so boundaries drift fractionally, the
-  // cells paint 26/27/28px wide, and the 1px dividers antialias into the fill they sit between
-  // (measured on the then-green strip: 180,199,179 and 113,159,113 instead of the intended
-  // 227,227,226 — the same blend happens whatever the fill). Two identically
-  // coloured neighbours then merge and the pair reads as one double-width cell — which is exactly
-  // how the attention router's 14.9%/14.8% pair looked. 22 + 2 = 24 → 30 device px at 1.25 and 36 at
-  // 1.5, both integers, and all seven dividers come back solid. Don't retune 22 or 2 independently.
-  //  `hue` takes a ramp function as well as a hex: the attention router's strip passes
-  //  `colorSequentialBlue` so it is painted by the SAME ramp as the `stripHTML` stream row it is
-  //  computed from, rather than a blue-ish approximation of it (see that call site).
-  function expertStripWithNumbers(hue: string | ((t: number) => string), allProbs: number[], topExperts: number[], cw?: number, ch?: number, gapPx?: number) {
-    const ramp = typeof hue === 'function' ? hue : (t: number) => tokenRampColor(hue, t);
-    const w = cw || 13;
-    const h = ch || 22;
-    // 1 by default: the D = Softmax Output strip is 64 cells at 8px, where a 2px gap would be a
-    // fifth of the pitch and would stop reading as the enlarged copy of an All-tokens grid row.
-    const gap = gapPx || 1;
-    const fontSz = Math.max(7, Math.round(w * 0.85));
-    const topSet = new Set(topExperts);
-    const maxP = Math.max(...allProbs, 1e-9);
-    let html = '<div style="display:inline-flex;gap:' + gap + 'px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
-    for (let i = 0; i < allProbs.length; i++) {
-      const p = allProbs[i];
-      const isTop = topSet.has(i);
-      const fill = ramp(Math.sqrt(p / maxP));
-      // Ink from the cell's own luminance, not a hard-coded white. `colorSequentialBlue` INVERTS in
-      // dark mode (--seq-100/--seq-700 swap ends), so the highest-probability cell — the one that
-      // always carries a number — is a pale blue there, and white-on-pale is the worst contrast in
-      // the strip. tokenRampColor's fills stay dark at high t, so the other call site keeps white.
-      const [fr, fg, fb] = hexToRgb(fill);
-      const dark = (0.2126 * fr + 0.7152 * fg + 0.0722 * fb) < 150;
-      const ink = dark ? '#fff' : '#141414';
-      const inkShadow = dark ? '0 0 2px rgba(0,0,0,0.65)' : '0 0 2px rgba(255,255,255,0.65)';
-      html += '<div class="mm-cell" style="position:relative;width:' + w + 'px;height:' + h + 'px;background:' + fill + ';animation-delay:' + mmDelay(i, allProbs.length) + 'ms;">' +
-        (isTop ? '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:' + fontSz + 'px;font-weight:800;color:' + ink + ';text-shadow:' + inkShadow + ';">' + (i + 1) + '</span>' : '') +
-        '</div>';
-    }
-    html += '</div>';
-    return html;
-  }
+  // ---- heatmap color ramps ----
+  // hexToRgb / rgbToHex / lerpRgb / rgbToHsl / hslToHex and `tokenRampColor` (the one ramp every
+  // router-probability view uses) now live in colorRamps.ts, unchanged.
 
   const NS = 'http://www.w3.org/2000/svg';
   function el(tag: string, attrs: Record<string, string | number>) {
     const e = document.createElementNS(NS, tag);
     for (const k in attrs) e.setAttribute(k, String(attrs[k]));
     return e;
-  }
-
-  // Token text (e.g. the BOS token, literally the string "<s>") and next-token candidates are
-  // real model output spliced into innerHTML-bound strings below — escape so a literal "<s>" (or
-  // a code-domain token containing "<"/">"/"&") can't be parsed as markup. Only needed at sites
-  // that build `html`/`innerHTML`; sites that assign via `.textContent` (e.g. mathTitle) are
-  // already safe and must NOT be escaped there, or the entities would show up literally.
-  function escapeHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   // ---- row labels (built once) ----
@@ -285,13 +194,26 @@ export function bootArchExplorer(
 
   // ---- size the "Expert Selection" modal to fit however many token rows this prompt has ----
   const gridModalEl = svg.closest('.math-modal') as HTMLElement | null;
-  function fitGridModalHeight() {
+  /** Which Router sub-tab is showing — the island's MIRROR of React's `routerSubTab`, pushed in
+   *  through the `fitGridHeight` api member. Until 2026-08-02 `fitGridModalHeight` read this
+   *  straight off the DOM (`gridModalEl.dataset.routerTab`), which made React's `data-router-tab`
+   *  attribute a private channel between the two. React still writes that attribute — it is a
+   *  state marker the test harness reads — but nothing in here reads it back.
+   *
+   *  ⚠ Initial value. A fresh boot cannot know React's, and 'per-token' is what `routerSubTab`
+   *  holds on a first mount, so the boot-time fit below no-ops exactly as it did before. On a
+   *  RE-boot with All-tokens showing this is briefly stale, and that is harmless BY CONSTRUCTION,
+   *  not by luck: React's `[routerSubTab, flow]` effect is declared AFTER the boot effect, so on
+   *  every prompt/model change it runs immediately after this file is re-entered and pushes the
+   *  real regime before anything can be measured. Asserted in exercise-s5.mjs (C9). */
+  let routerTab: RouterTabRegime = 'per-token';
+  function fitGridModalHeight(tab: RouterTabRegime) {
     if (!gridModalEl) return;
     // This shrink-to-fit sizes the modal around the All-tokens heatmap SVG. On the Per-token
     // sub-tab that measurement means nothing — the fan is a different, taller thing — and a modal
-    // fitted to a short heatmap would squeeze it. React owns maxHeight there (92vh) and stamps the
-    // active sub-tab on the element, so bail out rather than fight it.
-    if (gridModalEl.dataset.routerTab === 'per-token') return;
+    // fitted to a short heatmap would squeeze it. React owns maxHeight there (92vh), so bail out
+    // rather than fight it. The regime arrives as an ARGUMENT now (see `routerTab` above).
+    if (tab === 'per-token') return;
     const svgW = svg.getBoundingClientRect().width || 1040;
     const svgH = (axisY + 20) * (svgW / 1040); // rendered SVG height at its current display width
     const header = gridModalEl.querySelector('.math-modal-header');
@@ -308,8 +230,13 @@ export function bootArchExplorer(
     const needed = chromeH + controlsH + svgH + 24;
     gridModalEl.style.maxHeight = Math.min(needed, window.innerHeight * 0.92) + 'px';
   }
-  fitGridModalHeight();
-  window.addEventListener('resize', fitGridModalHeight);
+  /** ⚠ A STABLE zero-arg wrapper, and that is load-bearing. `fitGridModalHeight` takes an argument
+   *  now, so it cannot be the listener itself; and a fresh arrow passed to `removeEventListener`
+   *  in `cleanup` would not match the one registered here — `removeEventListener` returns silently
+   *  when the reference differs, leaking one live listener per boot with no error anywhere. */
+  const onGridResize = () => fitGridModalHeight(routerTab);
+  fitGridModalHeight(routerTab);
+  window.addEventListener('resize', onGridResize);
 
   // ---- isolation state ----
   // The token legend that used to sit above the grid (a swatch + label chip per token, each an
@@ -554,7 +481,10 @@ export function bootArchExplorer(
       });
     });
   }
-  animateBtn.onclick = () => animateRouting();
+  // ▶ Replay routing's click used to be bound here (`animateBtn.onclick`). React renders that
+  // button and now calls `animateRouting` through the api instead, so this file no longer reaches
+  // into React-rendered modal chrome. The three INTERNAL callers are untouched: a layer change,
+  // isolating a token, and opening the Router modal from the MoE block's router panel.
 
   svg.onmousemove = (ev: MouseEvent) => {
     const r = (ev.target as Element).closest('.expert-cell') as SVGRectElement | null;
@@ -565,289 +495,39 @@ export function bootArchExplorer(
   svg.onmouseleave = hideTip;
 
   // ---- matrix-math popup: click any cell to see a real, visual diagram of that computation ----
-  const mathBackdrop = byId('math-backdrop');
+  // The only element of the math modal this file still holds: `wireDataTips` delegates from it,
+  // and `wireMathSubTabs` queries within it. React owns the modal's open state, its title, its
+  // header slot and the body's HTML — so this must stay MOUNTED at all times (only the `open`
+  // class toggles), or this boot-time lookup would resolve against a node React later replaced.
   const mathContent = byId('math-content');
-  const mathTitle = byId('math-modal-title');
-  // Header slot, level with ✕ (see ArchitectureTab.tsx). Only stages that own sub-tabs fill it;
-  // every other path through the modal has to blank it, or the bar outlives its panels.
-  const mathHeaderSlot = byId('math-modal-header-slot');
   let selected: { ti: number; e: number } | null = null;
 
-  function colorSequentialBlue(t: number) {
-    const cs = getComputedStyle(root);
-    const light = hexToRgb(cs.getPropertyValue('--seq-100').trim());
-    const dark = hexToRgb(cs.getPropertyValue('--seq-700').trim());
-    return rgbToHex(lerpRgb(light, dark, Math.max(0, Math.min(1, t))));
-  }
-
-  function mmDelay(idx: number, total: number) { return Math.min(idx * (260 / Math.max(total, 1)), 260).toFixed(0); }
-  function gridHTML(grid: number[][], cellPx: number) {
-    const cols = grid[0].length;
-    const total = grid.length * cols;
-    let maxAbs = 1e-9;
-    grid.forEach((row) => row.forEach((v) => { if (Math.abs(v) > maxAbs) maxAbs = Math.abs(v); }));
-    let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + cols + ',' + cellPx + 'px);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
-    let idx = 0;
-    grid.forEach((row) => row.forEach((v) => {
-      html += '<div class="mm-cell" style="width:' + cellPx + 'px;height:' + cellPx + 'px;background:' + colorSequentialBlue(Math.sqrt(Math.abs(v) / maxAbs)) + ';animation-delay:' + mmDelay(idx++, total) + 'ms;"></div>';
-    }));
-    html += '</div>';
-    return html;
-  }
-  // ---- causal-mask rendering ----------------------------------------------------------------
-  // gridHTML paints a value ramp and nothing else, so an attention map's upper triangle reads as
-  // "a very pale blue", i.e. as a genuinely tiny probability. It is not tiny: every upper-triangular
-  // cell of attn_probs_all_heads is EXACTLY 0 in all three models (verified over every layer of
-  // OLMoE's 12 prompts and prompts 0/5/11 of DeepSeek/JetMoE — max |value| = 0), because the causal
-  // mask adds −∞ to those scores before the softmax. Hatching them says "structurally excluded"
-  // where the ramp said "small", and the hover tells the two apart.
-  // Two traps here, both silent: the stripes are drawn from --text-muted, not --border (on the light
-  // theme --border is a 10% black wash that disappears into the base at these cell sizes), and the
-  // base is --page, NOT --surface-2 — .moe-root does not define --surface-2, so a var() on it makes
-  // the whole background declaration invalid and the cell renders transparent with no hatch at all.
-  const HATCH_BG = 'repeating-linear-gradient(45deg, transparent 0 2.5px, color-mix(in srgb, var(--text-muted) 60%, transparent) 2.5px 4px), var(--page)';
+  // ---- the math modals' diagram primitives (mathDiagram.ts) ---------------------------------
+  // The builders that paint values used to close over `colorSequentialBlue` and `tokLabel`; they
+  // take those as their first argument now, and these one-line wrappers bind them so every call
+  // site below is unchanged. `colorSequentialBlue` is passed as a FUNCTION, never as a resolved
+  // colour, so its --seq-100/--seq-700 read stays at call time and keeps tracking dark mode.
+  function colorSequentialBlue(t: number) { return sequentialBlue(root, t); }
   // Tooltips go in a data-tip="" attribute (shown instantly via the shared #tooltip div — a
   // title="" would add the browser's fixed ~1s hover delay), so the label is quote-escaped and
-  // every quotation mark around it in the tip strings below is a curly one — a straight " there
-  // closes the attribute and truncates the tooltip at the token name.
+  // every quotation mark around it in the tip strings (see mathDiagram.ts) is a curly one — a
+  // straight " there closes the attribute and truncates the tooltip at the token name.
   function tokLabel(i: number) { return escapeHtml((tokens[i] && tokens[i].text.trim()) || '·').replace(/"/g, '&quot;'); }
-  // Same ramp as gridHTML, but key > query is hatched instead of coloured.
-  function attnGridHTML(grid: number[][], cellPx: number) {
-    const cols = grid[0].length;
-    const total = grid.length * cols;
-    let maxAbs = 1e-9;
-    grid.forEach((row) => row.forEach((v) => { if (Math.abs(v) > maxAbs) maxAbs = Math.abs(v); }));
-    let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + cols + ',' + cellPx + 'px);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
-    let idx = 0;
-    grid.forEach((row, r) => row.forEach((v, c) => {
-      const masked = c > r;
-      const bg = masked ? HATCH_BG : colorSequentialBlue(Math.sqrt(Math.abs(v) / maxAbs));
-      const tip = masked
-        ? 'masked (causal): M = −∞ before softmax, so this weight is exactly 0'
-        : 'query “' + tokLabel(r) + '” → key “' + tokLabel(c) + '”: ' + (v * 100).toFixed(2) + '%';
-      html += '<div class="mm-cell" data-tip="' + tip + '" style="width:' + cellPx + 'px;height:' + cellPx + 'px;background:' + bg + ';animation-delay:' + mmDelay(idx++, total) + 'ms;"></div>';
-    }));
-    html += '</div>';
-    return html;
-  }
-  // The mask M itself: 0 where the key is at or before the query, −∞ above the diagonal. Built from
-  // the token count, not read from data — M is a fixed structural matrix, not a measurement.
-  function maskGridHTML(n: number, cellPx: number) {
-    let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + n + ',' + cellPx + 'px);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
-    let idx = 0;
-    for (let r = 0; r < n; r++) {
-      for (let c = 0; c < n; c++) {
-        const masked = c > r;
-        const tip = masked
-          ? 'M = −∞: key “' + tokLabel(c) + '” comes after query “' + tokLabel(r) + '”, so softmax sends this to exactly 0'
-          : 'M = 0: key “' + tokLabel(c) + '” is at or before query “' + tokLabel(r) + '”, so the score passes through unchanged';
-        html += '<div class="mm-cell" data-tip="' + tip + '" style="display:flex;align-items:center;justify-content:center;' +
-          'width:' + cellPx + 'px;height:' + cellPx + 'px;font-size:' + Math.max(7, Math.round(cellPx * 0.42)) + 'px;' +
-          'color:var(--text-muted);background:' + (masked ? HATCH_BG : 'var(--surface-1)') + ';animation-delay:' + mmDelay(idx++, n * n) + 'ms;">' +
-          (masked ? '' : '0') + '</div>';
-      }
-    }
-    html += '</div>';
-    return html;
-  }
-  const MASK_LEGEND = '<p class="math-note" style="display:flex;align-items:center;gap:7px;">' +
-    '<span style="display:inline-block;width:15px;height:15px;border:1px solid var(--border);border-radius:3px;background:' + HATCH_BG + ';flex:0 0 auto;"></span>' +
-    'hatched = masked (causal, M = −∞); unhatched cells in the mask are 0. Hover a cell to see its M value or attention weight</p>';
-  // 16 per-head slices side by side: what "concatenate the heads" actually produces. Each head keeps
-  // its own ramp normalization (as everywhere else in this modal), so a quiet head stays legible.
-  function headStripHTML(heads: number[][][], cellPx: number) {
-    return '<div style="display:flex;gap:3px;align-items:flex-end;flex-wrap:wrap;justify-content:center;max-width:100%;">' +
-      heads.map((h) => gridHTML(h, cellPx)).join('') + '</div>';
-  }
-  function stripHTML(vec: number[], cw: number) {
-    let maxAbs = 1e-9;
-    vec.forEach((v) => { const a = Math.abs(v); if (a > maxAbs) maxAbs = a; });
-    let html = '<div style="display:inline-flex;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
-    vec.forEach((v, idx) => {
-      const fill = colorSequentialBlue(Math.sqrt(Math.abs(v) / maxAbs));
-      html += '<div class="mm-cell" style="width:' + cw + 'px;height:20px;background:' + fill + ';animation-delay:' + mmDelay(idx, vec.length) + 'ms;"></div>';
-    });
-    html += '</div>';
-    return html;
-  }
-  function matBlock(title: string, dimLabel: string, inner: string, big?: boolean) {
-    const titleSz = big ? '14px' : '11px', dimSz = big ? '12px' : '10px';
-    return '<div style="text-align:center;">' +
-      '<div style="font-size:' + titleSz + ';color:var(--text-secondary);margin-bottom:' + (big ? '7px' : '5px') + ';">' + title + '</div>' +
-      inner +
-      '<div style="font-size:' + dimSz + ';color:var(--text-muted);margin-top:' + (big ? '7px' : '5px') + ';font-variant-numeric:tabular-nums;">' + dimLabel + '</div>' +
-      '</div>';
-  }
-  function resultBlock(title: string, dimLabel: string, inner: string, big?: boolean) {
-    const titleSz = big ? '14px' : '11px', dimSz = big ? '12px' : '10px', pad = big ? '12px 16px' : '8px 12px';
-    return '<div style="text-align:center;background:color-mix(in srgb, var(--seq-500) 8%, var(--surface-1));border:1.5px solid var(--seq-500);border-radius:10px;padding:' + pad + ';">' +
-      '<div style="font-size:' + titleSz + ';font-weight:750;color:var(--seq-500);margin-bottom:' + (big ? '7px' : '5px') + ';">' + title + '</div>' +
-      inner +
-      '<div style="font-size:' + dimSz + ';color:var(--text-muted);margin-top:' + (big ? '7px' : '5px') + ';font-variant-numeric:tabular-nums;">' + dimLabel + '</div>' +
-      '</div>';
-  }
-  /** The multiplication dot is the one operator that does not survive the operator body size: `·` is
-   *  roughly 0.12em of ink, so at 17px it paints a ~2px speck and a pair of operands reads as two
-   *  grids sitting side by side rather than as a product. Every other operator here is a word
-   *  (`→ softmax →`) or a full-height glyph (`=`, `+`, `×`), so only this one needs the bump — and it
-   *  is applied BY SYMBOL inside `opSpan`, never per call site, so no diagram in these modals can be
-   *  left with the small dot. `line-height:1` comes with it: `align-self:center` would still centre a
-   *  taller line box, but in the `flex-end` rows (`diagramRow`'s default) a taller operator raises the
-   *  row's own height and lifts every operand off the bottom edge they align to. */
-  const DOT_PX = 34, DOT_PX_BIG = 44;
-  /** Same enlargement for a `·` that opens a longer operator phrase, where `opSpan` cannot scale the
-   *  string without blowing up the words beside it. The phrase becomes an inline-flex row so
-   *  `align-items:center` aligns the two from their real line boxes: left inline, a 2× middot rides
-   *  ~6px HIGH of the text's optical centre (it sits at its own font-size's x-height, not the
-   *  phrase's), and the obvious `vertical-align:middle` overcorrects it down onto the baseline —
-   *  measured both. Any hand-tuned `vertical-align:-0.NNem` that splits the difference is a font-metric
-   *  constant and would be wrong on a different stack, so it is not used. */
-  function dotPhrase(rest: string, big?: boolean) {
-    return '<span style="display:inline-flex;align-items:center;gap:4px;">' +
-      '<span style="font-size:' + (big ? DOT_PX_BIG : DOT_PX) + 'px;line-height:1;">·</span>' +
-      '<span>' + rest + '</span></span>';
-  }
-  function opSpan(sym: string, big?: boolean, noOffset?: boolean) {
-    const isDot = sym === '·';
-    const size = big ? (isDot ? DOT_PX_BIG : 22) : (isDot ? DOT_PX : 17);
-    return '<div style="font-size:' + size + 'px;' + (isDot ? 'line-height:1;' : '') +
-      'color:var(--text-muted);align-self:center;' + (noOffset ? '' : 'padding-bottom:' + (big ? '20px' : '16px') + ';') + '">' + sym + '</div>';
-  }
+  function gridHTML(grid: number[][], cellPx: number) { return buildGridHTML(colorSequentialBlue, grid, cellPx); }
+  function attnGridHTML(grid: number[][], cellPx: number) { return buildAttnGridHTML(colorSequentialBlue, tokLabel, grid, cellPx); }
+  function maskGridHTML(n: number, cellPx: number) { return buildMaskGridHTML(tokLabel, n, cellPx); }
+  function headStripHTML(heads: number[][][], cellPx: number) { return buildHeadStripHTML(colorSequentialBlue, heads, cellPx); }
+  function stripHTML(vec: number[], cw: number) { return buildStripHTML(colorSequentialBlue, vec, cw); }
 
-  /** Every weight grid in these modals is drawn in PyTorch's stored `(out, in)` layout — that is the
-   *  shape the extraction downsampled (`gate_w = fused[:ffn, :]` is `[5632, 2048]`, `router.layer.weight`
-   *  is `[num_experts, hidden]`) and it is what `nn.Linear` holds — while the multiply drawn beside it
-   *  contracts over `in`, i.e. runs `F.linear(h, W)` = `h · Wᵀ`. So a stored weight's dim label reads
-   *  `(out,in)ᵀ = (in,out)` and the result equations carry `Wᵀ`.
-   *  DELIBERATE DIVERGENCE from `index_v2.html`, which labels these `(out, in)` and writes a plain
-   *  `h·W_gate` — a dimensionally invalid product `(1,2048)·(5632,2048)`. See CLAUDE.md.
-   *  ⚠ The `∑_d h_d·W_router[e,d]` summations (step 1 here, and the MoA router step) are NOT part of
-   *  this and must stay un-transposed: they index the STORED tensor by (row = expert, col = dim),
-   *  which is already correct. A find-replace that adds ᵀ there breaks them.
-   *  ⚠ Also not part of this: the attention `W_q`/`W_k`/`W_v`/`W_o` labels, which are hard-coded
-   *  `(H, H)` and genuinely square on all three models (JetMoE's `nq × hd` = 16 × 128 = 2048 = H), and
-   *  the RMSNorm `weight γ` row, which is elementwise (`⊙`, Hadamard), not a matmul. */
-  function wDims(out: number, inn: number) { return '(' + out + ',' + inn + ')ᵀ = (' + inn + ',' + out + ')'; }
-  const TRANSPOSE_NOTE = 'Weights are shown in PyTorch’s stored <b>(out, in)</b> shape and used transposed in the multiply, the same convention as <b>nn.Linear</b>.';
-  function diagramRow(blocks: string[], opts?: { nowrap?: boolean; align?: 'flex-end' | 'center' }) {
-    const nowrap = opts && opts.nowrap;
-    const align = (opts && opts.align) || 'flex-end';
-    const style = nowrap
-      ? 'display:flex;align-items:' + align + ';gap:8px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;margin:8px 0 12px;'
-      : 'display:flex;align-items:' + align + ';gap:8px;flex-wrap:wrap;justify-content:center;margin:8px 0 12px;';
-    return '<div style="' + style + '">' + blocks.join('') + '</div>';
-  }
-  // A multi-row diagram where every row shares the same N columns, so operands/operators/results
-  // line up vertically row-to-row instead of each row independently centering its own content.
-  function diagramGrid(rows: string[][], cols: number, opts?: { big?: boolean; colGap?: number; rowGap?: number; center?: boolean }) {
-    const big = opts && opts.big;
-    const colGap = opts && opts.colGap != null ? opts.colGap : (big ? 22 : 16);
-    const rowGap = opts && opts.rowGap != null ? opts.rowGap : (big ? 28 : 20);
-    const ml = opts && opts.center ? 'auto' : '0';
-    let html = '<div style="margin-left:' + ml + ';margin-right:auto;width:fit-content;max-width:100%;' +
-      'display:grid;grid-template-columns:repeat(' + cols + ',auto);align-items:end;' +
-      'column-gap:' + colGap + 'px;row-gap:' + rowGap + 'px;padding:6px 0 10px;">';
-    rows.forEach((row) => { html += row.join(''); });
-    html += '</div>';
-    return html;
-  }
-  /** A cell that holds a column open without drawing anything — a grid places children in order, so
-   *  a row that skips a step (V takes no RMSNorm and no RoPE) needs a real element there or every
-   *  later cell in that row slides one column left and the alignment the grid exists for is lost. */
-  const GRID_BLANK = '<div></div>';
-  /** Pads ragged rows to the longest one so `diagramGrid` gets a rectangle. Returns the column count
-   *  with it, so no call site has to keep a hand-counted `cols` in sync with its own rows. */
-  function padGridRows(rows: string[][]) {
-    const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
-    return { cols, rows: rows.map((r) => r.concat(Array(cols - r.length).fill(GRID_BLANK))) };
-  }
-  /** The Attention Map step's two rows, on a shared middle column (2026-08-02, by request). Row B's
-   *  `attention map` IS row A's result, drawn at the same 22px cell over the same (tokens, tokens)
-   *  footprint as `mask M` — so parking it directly UNDER the mask lines the two hatched upper
-   *  triangles up cell-for-cell and shows the mask carving the map. Two `diagramRow`s cannot do
-   *  that: each one centres its own content, so row B landed wherever its own midpoint fell (~65px
-   *  left of the mask on a 9-token prompt).
-   *  Deliberately NOT `diagramGrid`: giving every operand its own column would size row A's trailing
-   *  `attention map` column and row B's `V head` column together, floating an 80px grid in a ~260px
-   *  track. Only the middle column needs to be shared, so the flanking groups stay single cells and
-   *  keep the flex spacing they have today — row B still reads `· V = out` at its own gaps.
-   *  Three details that are load-bearing:
-   *  - `flex:0 0 auto` on the grid. It is a flex item of the scroll wrapper, so it would otherwise
-   *    inherit `flex-shrink:1` and the `auto` tracks would compress toward min-content instead of
-   *    overflowing — which is the only thing the wrapper exists to catch.
-   *  - `row-gap:12px` + the wrapper's `margin:8px 0 12px` reproduce the old spacing exactly: the two
-   *    rows each carried `margin:8px 0 12px` and adjacent siblings collapse to max(12, 8) = 12.
-   *  - A grid column cannot wrap, so row A loses `diagramRow`'s `flex-wrap`. `safe center` centres
-   *    the diagram while it fits and falls back to start-alignment rather than clipping its left
-   *    edge (same pattern as `.pdf-flow-row`), and the scroll lives HERE, not on `.math-modal` —
-   *    that element is `overflow-x:auto` too, and scrolling it drags the header and the step
-   *    sub-tab bar off screen. Widest case in the corpus is JetMoE's 17-token prompt. */
-  function attnMapGrid(leadA: string[], midA: string, tailA: string[], midB: string, tailB: string[]) {
-    const cell = (items: string[]) => '<div style="display:flex;align-items:center;gap:8px;">' + items.join('') + '</div>';
-    return '<div style="max-width:100%;overflow-x:auto;display:flex;justify-content:safe center;margin:8px 0 12px;">' +
-      '<div style="flex:0 0 auto;display:grid;grid-template-columns:auto auto auto;' +
-      'align-items:center;column-gap:8px;row-gap:12px;">' +
-      cell(leadA) + midA + cell(tailA) +
-      GRID_BLANK + midB + cell(tailB) +
-      '</div></div>';
-  }
-  /** Tags one diagram cell with the beat it belongs to in the Attention step-1 reveal (see
-   *  `playAttnStep`). `matBlock`/`opSpan` each return a single outer `<div …>`, so the attribute
-   *  goes in by injecting it after that first tag rather than by growing their signatures — both are
-   *  shared by every math modal in this file and animate nowhere else, so the tag stays entirely
-   *  inside the two `proj` panels that use it. */
-  function beat(key: string, html: string) { return html.replace('<div', '<div data-beat="' + key + '"'); }
 
-  /** The Attention modal's steps. Standard MHA has three; JetMoE's MoA has a fourth, `route`, in
-   *  second position — its attention block really does route before it attends, and that router is
-   *  part of attention, not of the MoE block (it lived behind a toggle in the Router modal until
-   *  2026-07-30). Keys are semantic, never positional: "Attention Map" is step 2 on one model and
-   *  step 3 on the other, so `data-atab="2"` / `#attn-subtab-2` could not name the same panel on
-   *  both — the numbers a reader sees are printed from the array index instead. */
-  const ATTN_STEPS_MHA = [
-    { key: 'proj', label: 'Project to Q/K/V' },
-    { key: 'map', label: 'Attention Map' },
-    { key: 'concat', label: 'Concatenate &amp; project' },
-  ];
-  const ATTN_STEPS_MOA = [
-    { key: 'proj', label: 'Project to Q/K/V' },
-    { key: 'route', label: 'Expert routing' },
-    { key: 'map', label: 'Attention Map' },
-    { key: 'concat', label: 'Concatenate &amp; project' },
-  ];
-  /** Title row for the Attention modal: bold name + its step pills on one line. Goes into
-   *  #math-modal-header-slot, NOT into #math-content — it names and navigates the whole modal, so
-   *  it belongs in the header level with ✕, exactly like the Router modal's (ArchitectureTab.tsx).
-   *  The click wiring below queries `#attn-sub-tabs` document-wide, which is what lets the buttons
-   *  live outside the body they drive. Shared by both attention branches (standard MHA and JetMoE's
-   *  MoA) so the two cannot drift; the MoA branch says plain "Attention" too — which expert and
-   *  which layer are already in the hint paragraph right below it.
-   *  `active` defaults to 'proj' at every call site that opens the modal fresh: clicking the block
-   *  means "explain this block", so it opens on the block's first step. */
-  function attnSubTabBar(steps: { key: string; label: string }[], active: string) {
-    return '<div class="math-subtab-bar"><h3>Attention</h3>' +
-      '<div class="sub-tabs" id="attn-sub-tabs" role="tablist">' +
-      steps.map((s, i) => '<button class="sub-tab' + (s.key === active ? ' active' : '') + '" data-atab="' + s.key +
-        '" type="button" role="tab" aria-selected="' + (s.key === active) + '">' + (i + 1) + '. ' + s.label + '</button>').join('') +
-      '</div></div>';
-  }
-  /** One step's panel. Only the active one is visible; the rest ship collapsed, exactly as before —
-   *  the sub-tab click handler flips `display` on these same ids.
-   *  `cls` exists for step 1's `no-cell-anim`: that panel's cells are driven by GSAP
-   *  (`playAttnStep`), and the shared `.mm-cell` keyframe would otherwise fight the tween — a
-   *  CSS animation with `both` fill outranks inline styles for the properties it animates. Scoping
-   *  it to this one panel leaves every other grid in the app (steps 2–4 here, the Router modal, the
-   *  RMSNorm blocks) on the original CSS reveal. */
-  function attnPanel(key: string, active: string, inner: string, cls?: string) {
-    return '<div class="math-subtab-panel' + (cls ? ' ' + cls : '') + '" id="attn-subtab-' + key + '"' +
-      (key === active ? '' : ' style="display:none;"') + '>' + inner + '</div>';
-  }
-
-  function renderMath() {
-    if (!selected) return;
+  /** Builds the Router-cell popup for the currently-selected grid cell, or null when there is no
+   *  selection (or the layer has no experts to select). Payload only — React commits it. */
+  function buildMathCell(): StagePayload | null {
+    if (!selected) return null;
+    stageSkipReplay = false; // this stage has no attention panels, but never inherit a stale skip
     const { ti, e } = selected;
     const layer = DATA.layers[currentLayer];
-    if (!layer.tokens) return; // DeepSeek dense layer — no selectable experts
+    if (!layer.tokens) return null; // DeepSeek dense layer — no selectable experts
     const tt = layer.tokens[ti];
     const p = tt.all_probs[e];
     const topIdx = tt.top_experts.indexOf(e);
@@ -857,8 +537,9 @@ export function bootArchExplorer(
     const H = DATA.hidden_size, I = DATA.intermediate_size, E = DATA.num_experts, K = DATA.top_k_experts;
     const tokenText = tokens[ti].text.trim() || '(space)';
 
-    mathTitle.textContent = '"' + tokenText + '" → expert #' + (e + 1) + ' · layer ' + (currentLayer + 1);
-    mathHeaderSlot.innerHTML = '';
+    // headerExtra is '' below: this stage owns no sub-tab bar, and blanking the slot is what keeps
+    // a previous stage's bar from outliving its panels.
+    const title = '"' + tokenText + '" → expert #' + (e + 1) + ' · layer ' + (currentLayer + 1);
 
     const hVec = DATA.hidden_vectors[currentLayer][ti]; // real, downsampled
     const routerGrid = DATA.router_matrices[currentLayer]; // real, downsampled
@@ -948,33 +629,42 @@ export function bootArchExplorer(
       : 'only ' + K + ' of ' + E + ' experts run per token';
     html += '<p class="math-hint" style="margin:4px 0 0">Grids above are real weights/activations from this model, downsampled for display. See the "Parameter count" panel near the top of the page for how sparsity (' + sparsityPhrase + ') shapes the model\'s total vs. active parameter count.</p>';
 
-    // Same modal body, so this swap also takes out any live Attention step-1 reveal.
-    killAttnTimeline();
-    mathContent.innerHTML = html;
+    return { title, headerExtra: '', html };
+  }
 
+  /** The Router-cell popup's own "1. Router / 2. Expert feed-forward" pills. Split out of
+   *  `buildMathCell` so it can run from `mountStage` after React commits, and assigning `.onclick`
+   *  rather than adding a listener (see `mountStage`). */
+  function wireMathSubTabs() {
     const mtabBtns = [...mathContent.querySelectorAll('#math-sub-tabs .sub-tab')] as HTMLButtonElement[];
     mtabBtns.forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.onclick = () => {
         mtabBtns.forEach((b) => b.classList.toggle('active', b === btn));
         mathContent.querySelectorAll('.math-subtab-panel').forEach((panel) => {
           (panel as HTMLElement).style.display = (panel.id === 'math-subtab-' + btn.dataset.mtab) ? '' : 'none';
         });
-      });
+      };
     });
+  }
+
+  /** Rebuilds the open Router-cell popup against the current layer, if one is open. Called from
+   *  `setLayer`, which is what keeps a cell popup live while ▶ Step through layers runs — the
+   *  behaviour a flow stage deliberately does NOT have (`openFlowStage` nulls `selected`, so this
+   *  early-returns and the flow stage's content stays as it was built). */
+  function renderMath() {
+    const built = buildMathCell();
+    if (!built) return;
+    opts?.onOpenStage?.({ kind: 'cell', payload: built });
   }
 
   svg.onclick = (ev: MouseEvent) => {
     const r = (ev.target as Element).closest('.expert-cell') as SVGRectElement | null;
     if (!r) return;
     selected ={ ti: +(r.dataset.token || 0), e: +(r.dataset.expert || 0) };
-    renderMath();
-    mathBackdrop.classList.add('open');
+    renderMath(); // opens the modal through React — see the onOpenStage callback
   };
-  // Empty the header slot on the way out as well as on the way in: every opener sets it, but a
-  // closed modal holding the last stage's sub-tabs is a bar with no panels behind it.
-  const closeMathModal = () => { mathBackdrop.classList.remove('open'); mathHeaderSlot.innerHTML = ''; hideTip(); };
-  byId('math-modal-close').onclick = closeMathModal;
-  mathBackdrop.onclick = (ev) => { if (ev.target === mathBackdrop) closeMathModal(); };
+  // Closing (✕, backdrop click, Escape) is React state now; the header slot empties with it,
+  // because React renders it from the payload and a closed modal has none.
 
   rowsLayer.onclick = (ev: MouseEvent) => {
     const g = (ev.target as Element).closest('.token-row-label') as SVGGElement | null;
@@ -1025,68 +715,11 @@ export function bootArchExplorer(
   wireDataTips(pdfRow);
   wireDataTips(mathContent);
 
-  // ---- live narration: one sentence per flow block, shown above the row and driven by
-  // both clicking a block and the guided tour below. Index matches block push order in
-  // buildPdfBlocks (0=Embedding … 6=Final Output). ----
-  const RMSNORM_TEXT = 'Before attention runs, the residual stream is normalized: each token’s vector is divided by the root-mean-square of its own values, then rescaled by a learned gain γ, which keeps the numbers in a stable range no matter how many layers have already added into the stream. This is a side branch, not an update: attention reads this normalized copy while the residual stream itself is carried forward untouched, so it can be added back one step later.';
-  // The post-attention pair, split into two blocks (was one fused "Residual + RMSNorm"): the add
-  // closes the attention sub-block, the norm opens the MoE one. The add's wording is identical in
-  // all three models; only the norm names the block it feeds.
-  const RESIDUAL_ADD_TEXT = 'Attention’s output is added back onto its own input, the untouched copy of the residual stream from one step earlier. This is the "residual" (or skip) connection: attention contributes to the stream rather than replacing it, so information from earlier layers is never discarded.';
-  // The 8th block, outside the card: `model.norm`. One entry per model only because the layer
-  // count differs. Split out of the old Final Output narration, which used to carry "one more
-  // RMSNorm and a projection through the LM head" — that first half is now its own block.
-  const finalNormText = (n: number) =>
-    'This one is not part of any transformer block. After the loop has run all ' + n + ' times, the residual stream is normalized once more by the same RMSNorm rule, with its own learned gain γ. Only this final normalized state is handed to the LM head, which is why it sits outside the block on the right of the deck rather than inside it.';
-  const preMoeNormText = (nextBlock: string) =>
-    'The stream is normalized a second time, by the same RMSNorm rule as before attention (divide by the root-mean-square of the token’s own values, rescale by a learned gain γ) but with its own learned γ. This normalized copy is what the ' + nextBlock + ' reads, including its router, while the residual stream itself is once again carried forward untouched, ready to be added back after the ' + nextBlock + ' runs.';
-  const OLMOE_NARRATION = [
-    { title: 'Embedding', text: 'Each token is converted into a 2048-dimensional vector by a single row lookup in the embedding table, no matrix multiply yet.' },
-    { title: 'RMSNorm', text: RMSNORM_TEXT },
-    { title: 'Multihead Attention + RoPE', text: 'The normalized stream is projected into Q, K, and V across 16 heads of 128 dimensions each. RoPE rotates Q and K by each token’s position before the attention scores (Q·Kᵀ, causal-masked, softmaxed) are computed and used to weight V.' },
-    { title: 'Residual (post-attention)', text: RESIDUAL_ADD_TEXT },
-    { title: 'RMSNorm (pre-MoE)', text: preMoeNormText('MoE block') },
-    { title: 'MoE Layer', text: 'This layer has 64 independent "expert" feed-forward networks, but only 8 of them run for any given token. First, a small router (a single (2048 → 64) weight matrix) takes this token’s normalized hidden state and produces one logit per expert, then softmaxes those 64 logits into a probability distribution: how strongly the router “prefers” each expert for this specific token. The 8 highest-probability experts are selected; the other 56 are skipped entirely (not just zeroed out, never multiplied at all, which is what makes MoE cheap to run despite being huge to store). Each of the 8 selected experts is a full SwiGLU feed-forward block with its own weights (gate = SiLU(h·W_gate), up = h·W_up, output = (gate ⊙ up)·W_down). The layer’s final output is a weighted sum of those 8 experts’ outputs, using the router’s own real probabilities as the weights, so an expert the router was more confident about contributes more to the result.' },
-    { title: 'Residual', text: 'The MoE block’s output is added back onto the residual stream, producing this layer’s final output, which becomes the next layer’s input.' },
-    { title: 'Final RMSNorm', text: finalNormText(16) },
-    { title: 'Final Output', text: 'The normalized final state is projected through the vocabulary-sized LM head, and a softmax over those logits gives the model’s real next-token probabilities.' },
-  ];
-  // DeepSeek-MoE-16B: 28 layers, 64 routed experts (top-6) + 2 always-on shared experts, and
-  // layer 1 is a single dense feed-forward layer (no router).
-  // Tour step 6's text on DeepSeek's one dense layer. The MoE narration below describes the 64
-  // routed + 2 shared experts that layer does not have, so the card would otherwise contradict the
-  // "Dense FFN" block it is highlighting (the title already swaps in renderTourStep).
-  const DENSE_FFN_TEXT = 'Layer 1 has no router and no experts, just one dense feed-forward network that every token passes through. Every layer after this one splits into 64 routed experts plus 2 shared.';
-  const DEEPSEEK_NARRATION = [
-    { title: 'Embedding', text: 'Each token is converted into a 2048-dimensional vector by a single row lookup in the embedding table, no matrix multiply yet.' },
-    { title: 'RMSNorm', text: RMSNORM_TEXT },
-    { title: 'Multihead Attention + RoPE', text: 'The normalized stream is projected into Q, K, and V across 16 heads of 128 dimensions each. RoPE rotates Q and K by each token’s position before the attention scores (Q·Kᵀ, causal-masked, softmaxed) are computed and used to weight V.' },
-    { title: 'Residual (post-attention)', text: RESIDUAL_ADD_TEXT },
-    { title: 'RMSNorm (pre-MoE)', text: preMoeNormText('feed-forward block') },
-    { title: 'MoE Layer', text: 'DeepSeek splits each feed-forward block into 64 small routed "experts" plus 2 always-on shared experts. For every token, a router scores all 64 routed experts and keeps the top 6; those 6 run alongside the 2 shared experts (which every token always uses), and their outputs are summed.' },
-    { title: 'Residual', text: 'The feed-forward block’s output is added back onto the residual stream, producing this layer’s final output, which becomes the next layer’s input.' },
-    { title: 'Final RMSNorm', text: finalNormText(28) },
-    { title: 'Final Output', text: 'The normalized final state is projected through the vocabulary-sized LM head, and a softmax over those logits gives the model’s real next-token probabilities.' },
-  ];
-  // JetMoE-8B: 24 layers, sparse on both sides — attention is a routed block (Mixture-of-Attention:
-  // 8 attention experts, top-2) and the feed-forward is 8 experts, top-2.
-  const JETMOE_NARRATION = [
-    { title: 'Embedding', text: 'Each token is converted into a 2048-dimensional vector by a single row lookup in the embedding table, no matrix multiply yet.' },
-    { title: 'RMSNorm', text: RMSNORM_TEXT + ' On JetMoE this normalized copy is doing double duty: it is both what the attention experts read and the exact vector the attention (MoA) router scores its 8 experts against.' },
-    { title: 'Attention (MoA)', text: 'JetMoE makes attention sparse too. Instead of one attention block, there are 8 "attention experts"; a router scores them per token and keeps the top 2. Click this block and open step 2, "Expert routing", to see that decision for every token. Each selected expert has its own Q and output projections but shares the same K and V, then runs the usual Q·Kᵀ → softmax → ×V, and the 2 selected experts’ outputs are combined by their router weights. Each expert brings 16 query heads of 128 dims, and both read the same 16 shared key/value heads: 32 query heads over 16 K/V heads, which is grouped-query attention (2 query heads per K/V head).' },
-    { title: 'Residual (post-attention)', text: RESIDUAL_ADD_TEXT },
-    { title: 'RMSNorm (pre-MoE)', text: preMoeNormText('feed-forward block') },
-    { title: 'MoE Layer', text: 'This layer has 8 independent "expert" feed-forward networks, but only 2 of them run for any given token. A small router scores this token’s normalized hidden state against all 8 experts, softmaxes those into a probability distribution, and selects the top 2; the other 6 are skipped entirely. Each selected expert is a full SwiGLU feed-forward block, and the layer’s output is a weighted sum of the 2 experts’ outputs using the router’s own probabilities as the weights.' },
-    { title: 'Residual', text: 'The feed-forward block’s output is added back onto the residual stream, producing this layer’s final output, which becomes the next layer’s input.' },
-    { title: 'Final RMSNorm', text: finalNormText(24) },
-    { title: 'Final Output', text: 'The normalized final state is projected through the vocabulary-sized LM head, and a softmax over those logits gives the model’s real next-token probabilities.' },
-  ];
-  const FLOW_NARRATION = flow.is_moa ? JETMOE_NARRATION
-    : DATA.shared_experts ? DEEPSEEK_NARRATION
-    : OLMOE_NARRATION;
+  // The live narration tables (narration.ts) are no longer read here at all: the guided tour card
+  // is their only consumer and it is React now, so the per-model three-way pick moved there too
+  // (`pickNarration`). The old inline per-block narration was removed long before that.
   // The "Transformer Block N" label + layer nav live up in the flow header (centered, level with
-  // the Start-tour button); buildPdfBlocks fills it. FLOW_NARRATION is still used by the guided
-  // tour card below — the old inline per-block narration was removed (redundant with that card).
+  // the Start-tour button); buildPdfBlocks fills it.
   const flowBlockLabelEl = byId('flow-block-label');
   /** The nine flow blocks in document order (0=Embedding … 7=Final RMSNorm, 8=Final Output),
    *  skipping the card
@@ -1099,54 +732,49 @@ export function bootArchExplorer(
     liveBlockEls().forEach((blockEl, i) => blockEl.classList.toggle('selected', i === idx));
   }
   pdfRow.onclick = (ev: MouseEvent) => {
+    // Embedding's token chips, DELEGATED here rather than wired per chip (2026-08-02). React owns
+    // that block's markup now, so a per-chip `addEventListener` would have to be re-run after every
+    // React commit that rewrites it — and the island has no hook for that. Delegation is the only
+    // wiring that survives a React content write.
+    // It also has to live INSIDE this handler, not beside it: a chip used to `stopPropagation()` so
+    // that clicking one opens the embedding stage WITHOUT selecting the Embedding block. A React
+    // `onClick` cannot do that — React attaches at the root, an ANCESTOR of pdfRow, so this native
+    // listener would already have run and selected the block. Handling both cases in one place
+    // keeps the original ordering exactly.
+    const chip = (ev.target as Element).closest<HTMLElement>('.pdf-token-chip');
+    if (chip) { flowToken = +(chip.dataset.tidx || 0); openFlowStage('embed'); return; }
     const blockEl = (ev.target as Element).closest<HTMLElement>('.pdf-block');
     if (!blockEl) return;
     selectBlockByIndex(liveBlockEls().indexOf(blockEl));
   };
+  // Same reasoning for the popover clamp, which was a per-chip `mouseenter`. `mouseover` is the
+  // delegable twin (it bubbles) and re-firing it on the chip's own children is harmless:
+  // clampTokenPopover derives everything from the chip's untransformed geometry, so repeat calls
+  // are idempotent — that is the very property its comment relies on to avoid compounding.
+  // Assigned as a PROPERTY, not addEventListener: cleanup() does not unbind pdfRow, so a listener
+  // would stack on every re-boot.
+  pdfRow.onmouseover = (ev: MouseEvent) => {
+    const chip = (ev.target as Element).closest<HTMLElement>('.pdf-token-chip');
+    if (chip) clampTokenPopover(chip);
+  };
 
-  // ---- guided tour: steps through the same 9 blocks with a floating card + block highlight ----
-  const tourOverlay = byId('tour-overlay');
-  const tourStepLabel = byId('tour-step-label');
-  const tourTitleEl = byId('tour-title');
-  const tourTextEl = byId('tour-text');
-  let tourOpen = false, tourStep = 0;
+  // ---- guided tour: the card is React (ArchitectureTab owns tourOpen/tourStep and renders the
+  // overlay from narration.ts). What stays here is the block HIGHLIGHT, because it indexes
+  // `liveBlockEls()` — the positional list that filters out the swipe clone's 6 blocks, which only
+  // this file can compute. React drives it through `api.highlightTourBlock`.
   function pdfBlockEls() { return liveBlockEls(); }
-  function renderTourStep() {
-    const n = FLOW_NARRATION[tourStep];
-    tourStepLabel.textContent = 'Step ' + (tourStep + 1) + ' of ' + FLOW_NARRATION.length;
-    // DeepSeek's layer 1 renders a "Dense FFN" block, not "MoE Layer" — keep the card's title on
-    // the block it is actually highlighting.
-    const denseHere = !DATA.layers[currentLayer].tokens;
-    tourTitleEl.textContent = (tourStep === 5 && denseHere)
-      ? 'Dense FFN (layer ' + (currentLayer + 1) + ')'
-      : n.title;
-    tourTextEl.textContent = (tourStep === 5 && denseHere) ? DENSE_FFN_TEXT : n.text;
-    byId<HTMLButtonElement>('tour-back-btn').disabled = tourStep === 0;
-    byId('tour-next-btn').textContent = tourStep === FLOW_NARRATION.length - 1 ? 'Finish' : 'Next ›';
-    applyTourHighlight();
-  }
+  /** Which block index the tour is highlighting, or null for "no tour". A MIRROR of React's state,
+   *  written only by `highlightTourBlock`.
+   *  It exists so `buildPdfBlocks` can re-apply the highlight after it wipes and rebuilds the row
+   *  (its trailing call below) WITHOUT a round trip into React: a callback would land after the
+   *  rebuild rather than inside it, so the highlight would blink off for a frame, and it would mean
+   *  setting React state from the middle of an imperative rebuild. */
+  let tourHighlight: number | null = null;
   function applyTourHighlight() {
     const els = pdfBlockEls();
-    els.forEach((tourEl, i) => tourEl.classList.toggle('tour-active', tourOpen && i === tourStep));
-    if (tourOpen && els[tourStep]) els[tourStep].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    els.forEach((tourEl, i) => tourEl.classList.toggle('tour-active', tourHighlight !== null && i === tourHighlight));
+    if (tourHighlight !== null && els[tourHighlight]) els[tourHighlight].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }
-  byId('start-tour-btn').onclick = () => {
-    tourOpen = true; tourStep = 0;
-    tourOverlay.classList.add('open');
-    renderTourStep();
-  };
-  byId('tour-exit-btn').onclick = () => {
-    tourOpen = false;
-    tourOverlay.classList.remove('open');
-    applyTourHighlight();
-  };
-  byId('tour-back-btn').onclick = () => {
-    if (tourStep > 0) { tourStep--; renderTourStep(); }
-  };
-  byId('tour-next-btn').onclick = () => {
-    if (tourStep < FLOW_NARRATION.length - 1) { tourStep++; renderTourStep(); }
-    else { tourOpen = false; tourOverlay.classList.remove('open'); applyTourHighlight(); }
-  };
 
   function cssVar(name: string) { return getComputedStyle(root).getPropertyValue(name).trim(); }
   function eq(name: string, dim: string) { return '<span class="cell-name">' + name + '</span><span class="cell-dim">' + dim + '</span>'; }
@@ -1237,7 +865,7 @@ export function bootArchExplorer(
   function drawFlowArcs(
     stage: HTMLElement, card: HTMLElement, cardRow: HTMLElement,
     skipSvg: SVGElement, loopSvg: SVGElement,
-    ln1El: HTMLElement, add1El: HTMLElement, add2El: HTMLElement, finalNormEl: HTMLElement,
+    ln1El: HTMLElement, add1El: HTMLElement, add2El: HTMLElement, finalNormEl: HTMLElement | null,
   ) {
     const cardBox = card.getBoundingClientRect();
     const stageBox = stage.getBoundingClientRect();
@@ -1273,8 +901,10 @@ export function bootArchExplorer(
     // (the connector rect below, measured against the cardBox captured at the top): the final norm
     // is now bounded by cardRow ≤ card ≤ stage + its loop margin, so it can never be the tallest
     // item in .pdf-flow-row and shrinking it moves neither the row nor the card.
-    finalNormEl.style.height = (row.b - row.t) + 'px';
-    finalNormEl.style.marginTop = row.t + 'px';
+    if (finalNormEl) {
+      finalNormEl.style.height = (row.b - row.t) + 'px';
+      finalNormEl.style.marginTop = row.t + 'px';
+    }
     // Read the flow line off a real connector rather than re-deriving it from FLOW_Y, so the arcs
     // cannot drift from the arrows if that 46px ever changes. AFTER the write above: this
     // getBoundingClientRect flushes layout, so it already reflects the new padding.
@@ -1426,6 +1056,15 @@ export function bootArchExplorer(
     // Measure the card's NATURAL size: park the stage out of flow at max-content first, so a
     // narrow viewport can't compress the blocks into the reading and lock a too-small stage that
     // never recovers when the window widens (the running max can only grow, not shrink back).
+    // ⚠ minHeight is cleared for the duration of the park (2026-08-02). The stage used to be a
+    // FRESH element on every build, so it arrived here unlocked; React renders it once and it now
+    // persists across every layer step, prompt and model. `.layer-stage` is a flex row and
+    // `.layer-card` is a flex item at the default `align-items: stretch`, so a stale min-height
+    // would stretch the card while it is being measured. It does not reach `cardRow` (the card sets
+    // `align-items: flex-start`), which is why nothing visibly changed — but measuring a box the
+    // previous model locked is a real difference, and this removes it. Re-set below, in the same
+    // order, so the style attribute serializes identically.
+    stage.style.minHeight = '';
     stage.style.position = 'absolute';
     stage.style.width = 'max-content';
     stage.style.visibility = 'hidden';
@@ -1550,12 +1189,25 @@ export function bootArchExplorer(
     });
   }
 
+  /** Rebuild the DECK — the six per-layer blocks, their card, the two ghosts and both overlays —
+   *  into the `.layer-stage` React renders for us. It used to build the whole row: Embedding (0),
+   *  Final RMSNorm (7) and Final Output (8) moved to React on 2026-08-02 (see flowBlocks.ts), which
+   *  is why the wipe below is a targeted `stage.innerHTML` rather than the old `pdfRow.innerHTML`.
+   *  Everything else about it is unchanged, deliberately — the stage lock, the Final RMSNorm's
+   *  sizing and the arc draw must stay ONE synchronous sequence, in this order, right here.
+   *  Kept its name: `buildPdfBlocks` is what CLAUDE.md and every call site below say. */
   function buildPdfBlocks() {
-    pdfRow.innerHTML = '';
+    const stage = pdfRow.querySelector<HTMLElement>('.layer-stage');
+    if (!stage) return; // React has not committed the row yet — nothing to build into
+    // The old `pdfRow.innerHTML = ''` wiped `.selected` (and `.tour-active`) off all nine blocks on
+    // every layer step, head step and MoA-chip click. Blocks 0/7/8 are React's now and PERSIST, so
+    // they would silently keep a stale selection. Clear it explicitly to match exactly what the
+    // wipe did; `applyTourHighlight()` at the end of this function puts the tour's back.
+    liveBlockEls().forEach((b) => b.classList.remove('selected', 'tour-active'));
     const lf = flow.per_layer[currentLayer];
     const H = DATA.hidden_size, nh = headsPerExpert;
-    const blue = cssVar('--series-1'), green = cssVar('--series-4');
-    const yellow = cssVar('--series-3'), violet = cssVar('--series-5');
+    const blue = cssVar('--series-1');
+    const yellow = cssVar('--series-3');
     const focusT = numTokens - 1; // the token whose output actually becomes the prediction
     // DeepSeek dense layer 1 (index 0) — no router, no experts. Read before the blocks are built:
     // the pre-MoE RMSNorm names the block it feeds, which is a dense FFN there.
@@ -1564,21 +1216,10 @@ export function bootArchExplorer(
     // into horizontal scroll — shrink cells for prompts with more tokens, capped at 20px.
     const attnCellPx = Math.max(12, Math.min(20, Math.floor(280 / numTokens)));
 
+    /** The SIX in-card blocks, in row order: RMSNorm → Attention → Residual → RMSNorm → MoE →
+     *  Residual. These are row indices 1…6; blocks 0, 7 and 8 are React's (flowBlocks.ts), which is
+     *  why this array is 6 long and every index below is one less than the row position. */
     const blocks: HTMLDivElement[] = [];
-
-    // 1. Embedding Layer — per-token chips, hover each for its real embedding vector
-    const tokenChips = tokens.map((t, i) => {
-      const c = green;
-      return '<span class="pdf-token-chip" data-tidx="' + i + '" style="border-color:' + c + ';color:' + c + '">' + escapeHtml(t.text.trim() || '·') +
-        '<span class="pdf-token-popover"><div class="dims" style="color:var(--text-primary);font-weight:650">' +
-        escapeHtml(t.text.trim() || '(space)') + ': embedding (1,' + H + ')</div>' +
-        '<div class="grid-wrap">' + stripHTML(flow.embed_strip[i], 4) + '</div></span></span>';
-    }).join('');
-    blocks.push(pdfBlock({
-      title: 'Embedding', accent: green, extraClass: 'narrow embed-narrow',
-      html: '<div class="dims">' + eq('Tokens → Emb', '(' + numTokens + ', ' + H + ')') + '</div>' +
-        '<div style="margin:4px 0 2px">' + tokenChips + '</div>',
-    }));
 
     // 2. RMSNorm (thin) — the PRE-attention norm, `layer.input_layernorm`.
     // DELIBERATE DIVERGENCE from the prototype, which folds this into the attention card. It is a
@@ -1684,7 +1325,9 @@ export function bootArchExplorer(
 
     // 6. MoE Layer Visualization + Expert Activation, combined into one big block.
     // The outer block itself is inert (no click) — only the two sub-panels are clickable.
-    const moeLayerBlockIndex = blocks.length;
+    // ROW index, which `selectBlockByIndex` and `liveBlockEls()` speak — hence the +1 over this
+    // array's own index: Embedding is row 0 and is not in `blocks` any more.
+    const moeLayerBlockIndex = blocks.length + 1;
     if (denseHere) {
       // DeepSeek dense layer — one monolithic feed-forward box, no router / no experts / no lane.
       const denseEntry = DATA.dense_ffn && DATA.dense_ffn[String(currentLayer)];
@@ -1752,39 +1395,9 @@ export function bootArchExplorer(
       onClick: () => { flowToken = focusT; openFlowStage('add2'); },
     }));
 
-    // 8. Final RMSNorm (thin) — `model.norm`, the one norm that is NOT part of any transformer
-    // block: it runs once on the last layer's output, before the LM head. It therefore sits
-    // OUTSIDE the card, between the stage and Final Output.
-    // The proposal gated it to the last layer (it is only reached there). Shown on every layer
-    // instead, by request — so the "not per-layer" fact has to be carried by its popover, which
-    // opens by saying it is not part of this layer, and by its tour-card title. Its own <h4> is
-    // the bare "RMSNorm" (matching the two in-card norms) as of 2026-07-31, by request: sitting
-    // outside the card, after the loop-back, is what marks it as the odd one out.
-    blocks.push(pdfBlock({
-      title: 'RMSNorm', accent: yellow, extraClass: 'thin final-norm',
-      popoverTitle: 'Final RMSNorm (once, after the last block)',
-      popover: '<div class="dims">' +
-        '<div>' + eq('layer ' + DATA.num_layers + ' output', '(' + numTokens + ',' + H + ')') + ' <span class="op">÷ RMS ⊙ γ →</span> ' + eq('normalized stream', '(' + numTokens + ',' + H + ')') + '</div>' +
-        '<div class="foot-note">Not part of this transformer block. The same RMSNorm rule, applied <b>once</b> after the last of the ' + DATA.num_layers + ' blocks and before the LM head projection, so the loop below runs ' + DATA.num_layers + ' times and only then reaches this step.</div></div>',
-      hoverHint: 'click to see where the final numbers come from',
-      clickHint: 'click to see where the final numbers come from',
-      onClick: () => { openFlowStage('final-output'); },
-    }));
-
-    // 9. Final output token layer — REAL DATA, thin: just "token — pct%", no bars
-    const cands = DATA.next_token_candidates.slice(0, 6);
-    const ntRows = cands.map((c, i) =>
-      '<div class="pdf-nt-row"' + (i === 0 ? ' style="font-weight:750"' : '') + '><span class="tok' + (i === 0 ? ' top' : '') + '">' + escapeHtml(c.token.trim() || '·') + '</span>' +
-      '<span class="pct">' + (c.prob * 100).toFixed(1) + '%</span></div>'
-    ).join('');
-    blocks.push(pdfBlock({
-      title: 'Final Output', accent: violet, extraClass: 'narrow out-narrow',
-      html: '<div class="dims" style="margin-bottom:5px">softmax %,&nbsp;layer&nbsp;' + DATA.num_layers + '</div>' + ntRows,
-      // No clickHint (2026-08-01, by request). The block still opens the final-output math stage;
-      // the Final RMSNorm immediately upstream carries the same hint and opens the same stage, so
-      // the affordance is not lost — the hint was just printing twice, side by side.
-      onClick: () => { openFlowStage('final-output'); },
-    }));
+    // 8. Final RMSNorm and 9. Final Output are React's — see flowBlocks.ts and ArchitectureTab.
+    // They are the only blocks that read neither `currentLayer` nor the focus token, which is
+    // exactly what lets them memoise on the prompt and sit outside this per-layer rebuild.
 
     // Embedding (0), Final RMSNorm (7) and Final Output (8) sit directly in the row; the six per-layer blocks
     // (RMSNorm → Attention → Residual → RMSNorm → MoE → Residual) go inside one card, on a stage
@@ -1795,14 +1408,17 @@ export function bootArchExplorer(
     // embedding. The "Transformer Block N of M" label + layer nav stay up in the flow header
     // (filled below), not in the card, so the six repeating blocks line up with Embedding/Final
     // instead of being pushed down by a label.
-    const stage = document.createElement('div');
-    stage.className = 'layer-stage';
+    // The stage element itself is React's (resolved at the top of this function); its CONTENTS are
+    // entirely ours, so the wipe is the same total rebuild the old `pdfRow.innerHTML = ''` gave —
+    // ghosts, card, both overlays — and it also drops any outgoing swipe clone, exactly as before.
+    // Safe to do here: swipeToLayer snapshots the old card and calls endSwipe() BEFORE setLayer(),
+    // and re-appends its clone after this returns.
     stage.innerHTML = '<div class="layer-ghost g2"></div><div class="layer-ghost g1"></div>';
     const card = document.createElement('div');
     card.className = 'layer-card';
     const cardRow = document.createElement('div');
     cardRow.className = 'layer-card-row';
-    blocks.slice(1, 7).forEach((b, i) => {
+    blocks.forEach((b, i) => {
       if (i > 0) cardRow.appendChild(flowConnector());
       cardRow.appendChild(b);
     });
@@ -1817,16 +1433,12 @@ export function bootArchExplorer(
     const loopSvg = el('svg', { class: 'loop-overlay' }) as unknown as SVGElement;
     stage.appendChild(loopSvg);
 
-    pdfRow.appendChild(blocks[0]);
-    pdfRow.appendChild(flowConnector(true));
-    pdfRow.appendChild(stage);
-    // NOT shrinkable: this is the gap the tuck's THROW_PX = 18 travels into. The other two row
-    // connectors give way instead, which is what pays for the Final RMSNorm's 64px (see moe.css).
-    pdfRow.appendChild(flowConnector());
-    pdfRow.appendChild(blocks[7]);
-    pdfRow.appendChild(flowConnector(true));
-    pdfRow.appendChild(blocks[8]);
+    // The row's other six children — blocks 0/7/8 and the three fixed connectors around them —
+    // are rendered by React and are already in the document by the time this runs.
     applyStageLock(stage, card, cardRow);
+    // Re-queried per build, never cached at boot: React owns this element, so a cached reference
+    // would go stale across a remount. Null-tolerant for the same reason.
+    const finalNormEl = pdfRow.querySelector<HTMLElement>('.pdf-block.final-norm');
     // See .pdf-block.thin.final-norm in moe.css: it is opted out of the flex line's stretch, so it
     // needs an explicit height and top offset to sit level with the two RMSNorm blocks INSIDE the
     // card. Seeded from the lock here and refined from the card row's real rect in drawFlowArcs
@@ -1836,12 +1448,16 @@ export function bootArchExplorer(
     // arch tab is mounted-but-hidden behind the Domain tab and every getBoundingClientRect() reads
     // 0. stageH covers the whole card, so the card's own chrome comes back off: the in-card norms
     // stretch to the card ROW, which is stageH minus the padding and borders around it.
-    blocks[7].style.height = (stageH - cardPadY) + 'px';
-    blocks[7].style.marginTop = cardPadTop + 'px';
-    const finalNormEl = blocks[7];
+    // ⚠ Its geometry stays the DECK's, even though React renders the element: React gives it only
+    // its class and `--block-accent`, and never a `height`/`marginTop` of its own, so these writes
+    // survive every re-render (React's style diff only ever touches keys it knows about).
+    if (finalNormEl) {
+      finalNormEl.style.height = (stageH - cardPadY) + 'px';
+      finalNormEl.style.marginTop = cardPadTop + 'px';
+    }
     // After the lock, never before: applyStageLock parks the stage out of flow at max-content to
     // take its measurement, and every rect read mid-lock is the parked one.
-    redrawFlowArcs = () => drawFlowArcs(stage, card, cardRow, skipSvg, loopSvg, blocks[1], blocks[3], blocks[6], finalNormEl);
+    redrawFlowArcs = () => drawFlowArcs(stage, card, cardRow, skipSvg, loopSvg, blocks[0], blocks[2], blocks[5], finalNormEl);
     redrawFlowArcs();
 
     flowBlockLabelEl.innerHTML =
@@ -1859,19 +1475,9 @@ export function bootArchExplorer(
       flowNextBtn.onclick = () => swipeToLayer(currentLayer + 1);
     }
 
-    pdfRow.querySelectorAll('.pdf-token-chip').forEach((chip) => {
-      // The popover is centred on its chip, and the leftmost chip of each row sits ~28px from the
-      // Embedding block's left edge while the popover is ~135px wide — so half of it lands outside
-      // `.pdf-scroll`, whose `overflow-x: clip` cuts it off mid-strip. Nudge it back inside on
-      // hover rather than dropping the centring (which every other chip wants) or relaxing the
-      // clip (which exists to stop the invisible popover geometry forcing a scrollbar).
-      chip.addEventListener('mouseenter', () => clampTokenPopover(chip as HTMLElement));
-      chip.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        flowToken = +((chip as HTMLElement).dataset.tidx || 0);
-        openFlowStage('embed');
-      });
-    });
+    // The Embedding block's token chips are wired once, delegated on pdfRow — see its `onclick` /
+    // `onmouseover` above. They used to be bound per chip here, which only worked because this
+    // function rebuilt them on every call; React owns that block now.
 
     const combinedOutputPanel = document.getElementById('moe-combined-output-panel');
     if (combinedOutputPanel) {
@@ -1887,7 +1493,7 @@ export function bootArchExplorer(
         ev.stopPropagation();
         selectBlockByIndex(moeLayerBlockIndex);
         moeGridBackdrop.classList.add('open');
-        fitGridModalHeight();
+        fitGridModalHeight(routerTab);
         animateRouting();
       });
     }
@@ -1925,7 +1531,9 @@ export function bootArchExplorer(
       });
     });
 
-    if (tourOpen) applyTourHighlight();
+    // Re-apply the tour highlight after the wipe, from the mirror — see `tourHighlight`. Inert
+    // when no tour is running, and inert at boot for the same reason it always was.
+    if (tourHighlight !== null) applyTourHighlight();
   }
 
   // Compose the flow rebuild onto every layer change (the prototype reassigned setLayer here).
@@ -1935,8 +1543,8 @@ export function bootArchExplorer(
   // Prime the stage lock before the first visible build so DeepSeek doesn't resize on its
   // dense→MoE step. buildPdfBlocks reads currentLayer from this closure, so drive that variable
   // directly — NOT setLayer, which would also redraw the heatmap and push the probe layer into
-  // React via onLayerChange. buildPdfBlocks itself is side-effect-free here: tourOpen is still
-  // false at boot, so its trailing applyTourHighlight() is inert.
+  // React via onLayerChange. buildPdfBlocks itself is side-effect-free here: `tourHighlight` is
+  // still null at boot, so its trailing applyTourHighlight() is inert.
   const firstMoeLayer = DATA.layers.findIndex((l: any) => l.tokens);
   [...new Set([currentLayer, firstMoeLayer >= 0 ? firstMoeLayer : currentLayer])].forEach((l) => {
     const saved = currentLayer;
@@ -1990,12 +1598,14 @@ export function bootArchExplorer(
   }
 
   /** Sub-tab + head-nav wiring, shared by both attention branches (it was duplicated verbatim in
-   *  each). Runs from a setTimeout after the modal's HTML is in the DOM. `#attn-sub-tabs` is queried
-   *  document-wide because the bar lives in the modal header, outside `#math-content`. */
+   *  each). Runs from `mountStage`, which React calls from an effect once the modal's HTML has
+   *  committed (it was a `setTimeout(…, 0)` at the end of each branch until 2026-08-02).
+   *  `#attn-sub-tabs` is queried document-wide because the bar lives in the modal header, outside
+   *  `#math-content`. */
   function wireAttnSubTabs() {
     const atabBtns = [...document.querySelectorAll('#attn-sub-tabs .sub-tab')] as HTMLButtonElement[];
     atabBtns.forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.onclick = () => {
         atabBtns.forEach((b) => { b.classList.toggle('active', b === btn); b.setAttribute('aria-selected', String(b === btn)); });
         document.querySelectorAll('#math-content .math-subtab-panel[id^="attn-subtab-"]').forEach((panel) => {
           (panel as HTMLElement).style.display = (panel.id === 'attn-subtab-' + btn.dataset.atab) ? '' : 'none';
@@ -2004,8 +1614,14 @@ export function bootArchExplorer(
         // click (and from the modal opening), not from build time. The outgoing step is snapped to
         // its end state first rather than left frozen part-drawn, then the incoming one plays.
         if (attnTl) attnTl.progress(1);
+        // Entering a step from another step ALWAYS replays — only the head ‹ ›'s own rebuild opens
+        // at rest. `stageSkipReplay` lives as long as the built stage does (so `mountStage` can be
+        // re-run by React without burning it), so this is where it has to be dropped: without it,
+        // one head ‹ › would leave every later step switch opening at rest too, for as long as the
+        // modal stayed open.
+        stageSkipReplay = false;
         playAttnStep();
-      });
+      };
     });
   }
   /** ‹ › head stepper. It lives inside the attention-map step, so it re-opens on 'map' — it must
@@ -2022,8 +1638,8 @@ export function bootArchExplorer(
       openFlowStage('attn-only', 'map');
       buildPdfBlocks();
     };
-    if (prevBtn) prevBtn.addEventListener('click', step(-1));
-    if (nextBtn) nextBtn.addEventListener('click', step(1));
+    if (prevBtn) (prevBtn as HTMLElement).onclick = step(-1);
+    if (nextBtn) (nextBtn as HTMLElement).onclick = step(1);
   }
 
   // ---- The Attention modal's staged reveals ----------------------------------------------------
@@ -2088,6 +1704,13 @@ export function bootArchExplorer(
    *  layer / expert / prompt change. It is cleared where it is consumed so it can never leak into a
    *  later render. */
   let skipAttnReplayOnce = false;
+  /** The built stage's own "open at rest" property, set from `skipAttnReplayOnce` by
+   *  `buildFlowStage` and read — never cleared — by `playAttnStep`.
+   *  ⚠ This indirection is what makes `mountStage` IDEMPOTENT, which it has to be now that React
+   *  calls it: StrictMode runs every effect twice in dev, so a flag consumed by the first play
+   *  would be gone by the second and the head ‹ › would replay the full ~3.9s reveal after all.
+   *  It is cleared by the next build instead, i.e. by the next genuine open. */
+  let stageSkipReplay = false;
   /** The visible step panel, or null. Only one is ever displayed. */
   function visibleAttnPanel(): HTMLElement | null {
     const panels = [...document.querySelectorAll('#math-content .math-subtab-panel[id^="attn-subtab-"]')] as HTMLElement[];
@@ -2100,7 +1723,7 @@ export function bootArchExplorer(
     // Arming is CSS-only, so dropping the class is all it takes to paint a step at rest — which is
     // exactly what the head-nav skip and the reduced-motion path want.
     const unarm = () => panel.classList.remove('beat-armed');
-    if (skipAttnReplayOnce) { skipAttnReplayOnce = false; unarm(); return; }
+    if (stageSkipReplay) { unarm(); return; }
     // Reduced motion: GSAP is JS, so the global prefers-reduced-motion CSS rule does not cover it
     // (same reason the deck swipe carries its own flag). clearProps as well as unarm, for the case
     // where the setting flipped mid-play and left inline styles frozen part-way with no CSS
@@ -2238,11 +1861,17 @@ export function bootArchExplorer(
    *  where the block does; the controls that live *inside* a step and re-render the modal (the head
    *  ‹ ›) pass their own step, so a click inside a step doesn't bounce the reader elsewhere.
    *  Ignored by every non-attention stage. */
-  function openFlowStage(stageKey: string, attnTab: string = 'proj') {
+  function buildFlowStage(stageKey: string, attnTab: string = 'proj'): StagePayload {
     // claim the shared math modal: invalidate any previously-selected Expert Selection
     // grid cell so a later automatic layer-change re-render (renderMath, e.g. from
     // "Step through layers" still running) can't silently overwrite this popup.
+    // ⚠ This, and the `flowAttnExpert` reassignment in the MoA branch, are why this builder is NOT
+    // pure and must be called once per open from an event handler — never during a React render,
+    // where StrictMode's double invocation would run both side effects twice.
     selected = null;
+    // Transfer the head ‹ ›'s one-shot flag onto the stage being built (see `stageSkipReplay`).
+    stageSkipReplay = skipAttnReplayOnce;
+    skipAttnReplayOnce = false;
     const ti = flowToken, li = currentLayer;
     const lf = flow.per_layer[li];
     const tokenText = tokens[ti].text.trim() || '(space)';
@@ -2499,13 +2128,8 @@ export function bootArchExplorer(
 
       // Step 2's chips used to be wired here (class selector, so a `<span>` swap alone would not
       // have unwired them). They are display-only now — see routeChips above.
-      setTimeout(() => {
-        wireAttnSubTabs();
-        wireAttnHeadNav();
-        // Plays whichever step is visible: 'proj' for every opener that means
-        // "explain this block", 'map' when the head ‹ › re-opened the modal (which sets the skip flag).
-        playAttnStep();
-      }, 0);
+      // The wiring + reveal that used to be scheduled here on a setTimeout(0) is now `mountStage`,
+      // which React calls from an effect once this HTML has actually committed.
     } else if (stageKey === 'attn-only') {
       title = 'Multihead Attention (' + flow.num_attention_heads + ' heads) · layer ' + (li + 1);
       const rowLabels = tokens.map((t) => t.text.trim() || '·').join(', ');
@@ -2628,8 +2252,7 @@ export function bootArchExplorer(
         // walks head 1's cells, then head 2's — the heads land left to right, which is the operation
         // this step is named after. MHA has no `cweight`/`ccomb`; both gate the cursor.
         diagramRow([beat('cheads', matBlock(nh + ' heads × (' + numTokens + ',' + hd + ') concatenated', '(' + numTokens + ',' + H + ')', headStripHTML(lf.head_output_by_head, 7))), beat('cdot', opSpan('·')), beat('cwo', matBlock('W_o', '(' + H + ',' + H + ')', gridHTML(lf.o_weight, 5))), beat('ceq', opSpan('=')), beat('cout', matBlock('attention output', '(' + numTokens + ',' + H + ')', gridHTML(lf.attn_output, 4)))]) + '</div>', ATTN_PANEL_CLS);
-
-      setTimeout(() => { wireAttnSubTabs(); wireAttnHeadNav(); playAttnStep(); }, 0);
+      // Wiring + reveal moved to `mountStage` (see the MoA branch above).
     } else if (stageKey === 'add1') {
       // Batched over all tokens, matching the flow-block popover and the RMSNorm / attention modals.
       // Unlike RMSNorm there is no broadcast here: both operands are (numTokens, H) and the add is
@@ -2647,12 +2270,9 @@ export function bootArchExplorer(
         // DeepSeek dense layer, no routed experts to combine.
         html = '<div class="math-block"><h3>Dense feed-forward layer</h3>' +
           '<p class="math-hint" style="margin:0">Layer ' + (li + 1) + ' is dense, there is no router and no per-expert weighted sum. Every token runs through one shared feed-forward network. Switch to any later layer to see the MoE combined output.</p></div>';
-        mathTitle.textContent = title;
-        mathHeaderSlot.innerHTML = headerExtra;
-        killAttnTimeline();
-        mathContent.innerHTML = html;
-        mathBackdrop.classList.add('open');
-        return;
+        // Used to commit to the DOM and return early — the one branch that was a second writer to
+        // #math-content. It returns the payload like every other branch now.
+        return { title, headerExtra, html };
       }
       html = '<p class="math-hint" style="margin:0 0 10px">For every input token: the router\'s real top-' + DATA.top_k_experts + ' experts and their real softmax weights, then Σ (weight × expert_out), the actual weighted sum that becomes this layer\'s real MoE output for that token.' + (DATA.shared_experts ? ' The ' + DATA.shared_experts + ' always-on shared experts (merged into one feed-forward) are then added in gate-free, shown as “+ shared”.' : '') + '</p>';
       tokens.forEach((t, tIdx) => {
@@ -2745,18 +2365,34 @@ export function bootArchExplorer(
         '</div>';
     }
 
-    mathTitle.textContent = title;
-    mathHeaderSlot.innerHTML = headerExtra;
-    // Any step-1 timeline from the previous render is about to lose its nodes to this innerHTML
-    // swap — kill it before it can tween detached elements or stack with the play queued above.
-    killAttnTimeline();
-    mathContent.innerHTML = html;
-    mathBackdrop.classList.add('open');
+    return { title, headerExtra, html };
+  }
+
+  /** Opens a flow stage in the shared math modal. React owns the modal's open state and renders
+   *  the payload, so this builds and hands it over rather than writing to the DOM; the wiring and
+   *  the staged reveal follow from `mountStage`, once React has committed the HTML. */
+  function openFlowStage(stageKey: string, attnTab: string = 'proj') {
+    opts?.onOpenStage?.({ kind: 'flow', stageKey, attnTab, payload: buildFlowStage(stageKey, attnTab) });
+  }
+
+  /** Run by React from an effect, AFTER the stage's HTML has committed — the replacement for the
+   *  two `setTimeout(…, 0)` calls that used to end the attention branches. Safe to call on markup
+   *  that carries none of these elements: every wire-up below no-ops when its nodes are absent.
+   *  ⚠ The wiring assigns `.onclick` rather than adding listeners (the convention this file's
+   *  header describes). React skips the innerHTML write when a re-open produces a byte-identical
+   *  string, so the nodes can survive into the next mount and `addEventListener` would stack. */
+  function mountStage() {
+    wireMathSubTabs();
+    wireAttnSubTabs();
+    wireAttnHeadNav();
+    // Plays whichever step is visible: 'proj' for every opener that means "explain this block",
+    // 'map' when the head ‹ › re-opened the modal (which sets the skip flag).
+    playAttnStep();
   }
 
   // ---- cleanup for React hosting: everything boot() registered outside its own DOM subtree ----
   const cleanup = () => {
-    window.removeEventListener('resize', fitGridModalHeight);
+    window.removeEventListener('resize', onGridResize);
     window.removeEventListener('resize', onArcResize);
     redrawFlowArcs = null;
     stopPlay();
@@ -2772,6 +2408,12 @@ export function bootArchExplorer(
     cleanup,
     setLayer: (l: number) => setLayer(l),
     replayPop: () => popCells(),
-    fitGridHeight: () => fitGridModalHeight(),
+    fitGridHeight: (tab: RouterTabRegime) => { routerTab = tab; fitGridModalHeight(tab); },
+    animateRouting: () => animateRouting(),
+    mountStage: () => mountStage(),
+    killAttnTimeline: () => killAttnTimeline(),
+    hideTip: () => hideTip(),
+    highlightTourBlock: (step: number | null) => { tourHighlight = step; applyTourHighlight(); },
+    openStage: (stageKey: string) => openFlowStage(stageKey),
   };
 }
