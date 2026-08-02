@@ -1983,10 +1983,11 @@ export function bootArchExplorer(
    *   4 concat heads → (·, W_o) → [× weight: JetMoE] → [→ combine →: JetMoE] → attention output
    *
    * The offsets below are the BEAT SCHEDULE, not the wall-clock: every step is stretched by
-   * `ATTN_STEP_EXTRA` at the end of `playAttnStep`, so what a reader sees is the schedule + 0.70s.
+   * `ATTN_STEP_EXTRA` at the end of `playAttnStep`, so what a reader sees is the schedule + 0.70s —
+   * then multiplied by `ATTN_STEP_SLOW`, which is 1 everywhere except `concat`.
    * Measured totals (schedule → shipped): proj 2.58 → 3.28, and 3.13 → 3.83 on OLMoE, which alone
    * runs the `normop`/`normed` beats; route 1.38 → 2.08 (JetMoE only); map 2.56 → 3.26; concat
-   * 2.20 → 2.90, and 2.66 → 3.36 on JetMoE, which alone runs `cweight`/`ccomb`.
+   * 2.20 → 3.92, and 2.66 → 4.54 on JetMoE, which alone runs `cweight`/`ccomb`.
    *
    * Four things this is built around, each of which has bitten this file before:
    * - **The sub-tab bar flips `display`; it does not re-render.** A panel is regularly built while
@@ -2011,6 +2012,13 @@ export function bootArchExplorer(
   /** Seconds added to EVERY step of this modal, on top of the beat schedule below. See the
    *  `timeScale` at the end of `playAttnStep` for why it is applied there and not to the offsets. */
   const ATTN_STEP_EXTRA = 0.70;
+  /** Per-step wall-clock multiplier, applied on top of `ATTN_STEP_EXTRA`. `concat` alone runs 35%
+   *  slower (2026-08-01, by request): it is the one step whose beats are a *sweep* rather than a
+   *  sequence of distinct operands — 16 head grids inside a single tagged block — so its readability
+   *  is set by how fast the eye is dragged left to right, not by how long each element rests. A
+   *  multiplier, not a bigger `ATTN_STEP_EXTRA` for this step: the two models' concat totals differ
+   *  (JetMoE alone runs `cweight`/`ccomb`), and "35% slower" has to mean the same thing on both. */
+  const ATTN_STEP_SLOW: Record<string, number> = { concat: 1.35 };
   /** Classes every attention step panel ships with: GSAP owns its cells, and they start hidden so
    *  the panel's first paint is already frame 0. */
   const ATTN_PANEL_CLS = 'no-cell-anim beat-armed';
@@ -2142,7 +2150,9 @@ export function bootArchExplorer(
      * visible symptom. Slower tweens also mean *less* per-frame work, so the heaviest panel
      * (JetMoE step 4, 2,320 cells) cannot regress from this. */
     const d = tl.duration();
-    if (d > 0) tl.timeScale(d / (d + ATTN_STEP_EXTRA));
+    // `ATTN_STEP_SLOW` rides inside the same single `timeScale` as the extra, never as a second call
+    // — `timeScale` is absolute, so a second one would replace the first rather than compound with it.
+    if (d > 0) tl.timeScale(d / ((d + ATTN_STEP_EXTRA) * (ATTN_STEP_SLOW[step] ?? 1)));
     // Every tween above is a `fromTo`, which renders its from-state at creation regardless of where
     // it sits on the timeline — so by here each target carries the same values inline that
     // `.beat-armed` was painting from CSS, and the class has done its job. Dropping it now means the
