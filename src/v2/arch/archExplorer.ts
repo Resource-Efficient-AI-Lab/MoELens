@@ -725,7 +725,7 @@ export function bootArchExplorer(
    *  which is already correct. A find-replace that adds ᵀ there breaks them.
    *  ⚠ Also not part of this: the attention `W_q`/`W_k`/`W_v`/`W_o` labels, which are hard-coded
    *  `(H, H)` and genuinely square on all three models (JetMoE's `nq × hd` = 16 × 128 = 2048 = H), and
-   *  the RMSNorm `weight γ` row, which is elementwise (`×`), not a matmul. */
+   *  the RMSNorm `weight γ` row, which is elementwise (`⊙`, Hadamard), not a matmul. */
   function wDims(out: number, inn: number) { return '(' + out + ',' + inn + ')ᵀ = (' + inn + ',' + out + ')'; }
   const TRANSPOSE_NOTE = 'Weights are shown in PyTorch’s stored <b>(out, in)</b> shape and used transposed in the multiply, the same convention as <b>nn.Linear</b>.';
   function diagramRow(blocks: string[], opts?: { nowrap?: boolean; align?: 'flex-end' | 'center' }) {
@@ -759,6 +759,36 @@ export function bootArchExplorer(
   function padGridRows(rows: string[][]) {
     const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
     return { cols, rows: rows.map((r) => r.concat(Array(cols - r.length).fill(GRID_BLANK))) };
+  }
+  /** The Attention Map step's two rows, on a shared middle column (2026-08-02, by request). Row B's
+   *  `attention map` IS row A's result, drawn at the same 22px cell over the same (tokens, tokens)
+   *  footprint as `mask M` — so parking it directly UNDER the mask lines the two hatched upper
+   *  triangles up cell-for-cell and shows the mask carving the map. Two `diagramRow`s cannot do
+   *  that: each one centres its own content, so row B landed wherever its own midpoint fell (~65px
+   *  left of the mask on a 9-token prompt).
+   *  Deliberately NOT `diagramGrid`: giving every operand its own column would size row A's trailing
+   *  `attention map` column and row B's `V head` column together, floating an 80px grid in a ~260px
+   *  track. Only the middle column needs to be shared, so the flanking groups stay single cells and
+   *  keep the flex spacing they have today — row B still reads `· V = out` at its own gaps.
+   *  Three details that are load-bearing:
+   *  - `flex:0 0 auto` on the grid. It is a flex item of the scroll wrapper, so it would otherwise
+   *    inherit `flex-shrink:1` and the `auto` tracks would compress toward min-content instead of
+   *    overflowing — which is the only thing the wrapper exists to catch.
+   *  - `row-gap:12px` + the wrapper's `margin:8px 0 12px` reproduce the old spacing exactly: the two
+   *    rows each carried `margin:8px 0 12px` and adjacent siblings collapse to max(12, 8) = 12.
+   *  - A grid column cannot wrap, so row A loses `diagramRow`'s `flex-wrap`. `safe center` centres
+   *    the diagram while it fits and falls back to start-alignment rather than clipping its left
+   *    edge (same pattern as `.pdf-flow-row`), and the scroll lives HERE, not on `.math-modal` —
+   *    that element is `overflow-x:auto` too, and scrolling it drags the header and the step
+   *    sub-tab bar off screen. Widest case in the corpus is JetMoE's 17-token prompt. */
+  function attnMapGrid(leadA: string[], midA: string, tailA: string[], midB: string, tailB: string[]) {
+    const cell = (items: string[]) => '<div style="display:flex;align-items:center;gap:8px;">' + items.join('') + '</div>';
+    return '<div style="max-width:100%;overflow-x:auto;display:flex;justify-content:safe center;margin:8px 0 12px;">' +
+      '<div style="flex:0 0 auto;display:grid;grid-template-columns:auto auto auto;' +
+      'align-items:center;column-gap:8px;row-gap:12px;">' +
+      cell(leadA) + midA + cell(tailA) +
+      GRID_BLANK + midB + cell(tailB) +
+      '</div></div>';
   }
   /** Tags one diagram cell with the beat it belongs to in the Attention step-1 reveal (see
    *  `playAttnStep`). `matBlock`/`opSpan` each return a single outer `<div …>`, so the attribute
@@ -1529,7 +1559,7 @@ export function bootArchExplorer(
       popoverTitle: 'RMSNorm (pre-attention)',
       popover: '<div class="dims">' +
         '<div>' + eq('residual in', '(' + numTokens + ',' + H + ')') + ' <span class="op">× γ →</span> ' + eq('normalized', '(' + numTokens + ',' + H + ')') + '</div>' +
-        '<div class="foot-note">y = x / √(mean(x²)+ε) × γ. A side branch, not an update: attention reads this normalized copy while the residual stream itself is carried through untouched, to be added back one step later.</div></div>' +
+        '<div class="foot-note">y = x / √(mean(x²)+ε) ⊙ γ. A side branch, not an update: attention reads this normalized copy while the residual stream itself is carried through untouched, to be added back one step later.</div></div>' +
         '<div class="grid-wrap">' + gridHTML(lf.ln1_out, 4) + '</div>',
       clickHint: 'click for full RMSNorm math',
       onClick: () => { flowToken = focusT; openFlowStage('ln1'); },
@@ -1613,7 +1643,7 @@ export function bootArchExplorer(
       popoverTitle: 'RMSNorm (pre-MoE)',
       popover: '<div class="dims">' +
         '<div>' + eq('sum', '(' + numTokens + ',' + H + ')') + ' <span class="op">× γ →</span> ' + eq('normalized', '(' + numTokens + ',' + H + ')') + '</div>' +
-        '<div class="foot-note">y = x / √(mean(x²)+ε) × γ, with its own learned γ. Another side branch: this is what the ' + (denseHere ? 'feed-forward block' : 'MoE block and its router') + ' reads, while the residual stream is carried forward untouched.</div></div>' +
+        '<div class="foot-note">y = x / √(mean(x²)+ε) ⊙ γ, with its own learned γ. Another side branch: this is what the ' + (denseHere ? 'feed-forward block' : 'MoE block and its router') + ' reads, while the residual stream is carried forward untouched.</div></div>' +
         '<div class="grid-wrap">' + gridHTML(lf.ln2_out, 4) + '</div>',
       clickHint: 'click for full RMSNorm math',
       onClick: () => { flowToken = focusT; openFlowStage('ln2'); },
@@ -1893,12 +1923,12 @@ export function bootArchExplorer(
     return '<div class="math-block"><h3>' + title + '</h3>' +
       diagramRow([
         matBlock('x (before)', '(1, ' + DATA.hidden_size + ')', stripHTML(before, 5)),
-        opSpan('×'),
+        opSpan('⊙'),
         matBlock('weight γ', '(1, ' + DATA.hidden_size + ')', stripHTML(weight, 5)),
         opSpan('='),
         matBlock('normalized', '(1, ' + DATA.hidden_size + ')', stripHTML(after, 5)),
       ]) +
-      '<div class="math-eq wrap">y = x / sqrt(mean(x²) + ε) × γ' + (note ? ' &nbsp;<span class="op">(' + note + ')</span>' : '') + '</div></div>';
+      '<div class="math-eq wrap">y = x / sqrt(mean(x²) + ε) ⊙ γ' + (note ? ' &nbsp;<span class="op">— ' + note + '</span>' : '') + '</div></div>';
   }
 
   /** Sub-tab + head-nav wiring, shared by both attention branches (it was duplicated verbatim in
@@ -1948,14 +1978,15 @@ export function bootArchExplorer(
    * The beats per step, in the order the diagram is read. Rows that share a beat run simultaneously:
    *   1 proj   stream → (·, W) → (=, raw) → [→norm→, normed: OLMoE only] → →split→ → heads → rotate → post-RoPE
    *   2 route  stream row → (·, W_router) → → softmax → → probabilities            (JetMoE only)
-   *   3 map    (Q, K) · → (ᵀ/√hd +, mask M) → → softmax → → attention map → (·, V) → (=, head output)
+   *   3 map    (Q, K) · → (ᵀ/√hd +, mask M) → → softmax → → attention map → its copy in row B →
+   *            (·, V) → (=, head output)
    *   4 concat heads → (·, W_o) → [× weight: JetMoE] → [→ combine →: JetMoE] → attention output
    *
    * The offsets below are the BEAT SCHEDULE, not the wall-clock: every step is stretched by
    * `ATTN_STEP_EXTRA` at the end of `playAttnStep`, so what a reader sees is the schedule + 0.70s —
    * then multiplied by `ATTN_STEP_SLOW`, which is 1 everywhere except `concat`.
    * Measured totals (schedule → shipped): proj 2.58 → 3.28, and 3.13 → 3.83 on OLMoE, which alone
-   * runs the `normop`/`normed` beats; route 1.38 → 2.08 (JetMoE only); map 2.56 → 3.26; concat
+   * runs the `normop`/`normed` beats; route 1.38 → 2.08 (JetMoE only); map 3.22 → 3.92; concat
    * 2.20 → 3.92, and 2.66 → 4.54 on JetMoE, which alone runs `cweight`/`ccomb`.
    *
    * Four things this is built around, each of which has bitten this file before:
@@ -1973,7 +2004,8 @@ export function bootArchExplorer(
    *   and the head-nav skip.
    *
    * Nothing tweened affects layout: cells are fixed-size grid children and operators are
-   * `align-self:center` glyphs, so `diagramGrid`'s column alignment cannot be disturbed. */
+   * `align-self:center` glyphs, so the column alignment `diagramGrid` and `attnMapGrid` exist for
+   * cannot be disturbed. */
   let attnTl: gsap.core.Timeline | null = null;
   function killAttnTimeline() { if (attnTl) { attnTl.kill(); attnTl = null; } }
   const BEAT_CELL_FROM = { opacity: 0, scale: 0.4 };
@@ -2088,11 +2120,15 @@ export function bootArchExplorer(
       t += 0.14; ops('mdot1', t);
       t += 0.28; ops('mscale', t); grids('mmask', t + 0.08, 0.34);
       t += 0.52; ops('msoft', t);
-      // BOTH copies of the attention map, on purpose (2026-08-01, by request): the second row's
-      // operand IS the first row's result, one matrix drawn twice. Revealing them apart would put
-      // the same numbers on screen in two different states, which is what says "two measurements".
-      // They share a `data-beat` key, so this is one call and they cannot drift.
+      // Row A's result, then row B's copy of it — one matrix drawn twice, revealed in that order
+      // (2026-08-02, by request; they shared the `mmap` key and revealed together until then). The
+      // 0.66 is EXACTLY row A's stagger (0.40) plus one cell's fade (0.26), so row B starts on the
+      // frame row A finishes. That is what preserves the reason they were tied in the first place:
+      // the same numbers are never on screen in two different states, which is what would say "two
+      // measurements". Sequencing them instead reads as carrying the result down to the mask it was
+      // carved by — which is what the shared column under `mask M` is for (see `attnMapGrid`).
       t += 0.16; grids('mmap', t, 0.40);
+      t += 0.66; grids('mmap2', t, 0.40);
       t += 0.46; ops('mdot2', t); grids('mv', t + 0.08, 0.28);
       t += 0.38; ops('meq', t); grids('mout', t + 0.08, 0.28);
     } else if (step === 'concat') {
@@ -2169,7 +2205,7 @@ export function bootArchExplorer(
         '<p class="math-hint" style="margin:8px 0 0">No matrix multiply here, just indexing one row out of the (vocab_size, ' + H + ') embedding table. This vector is what enters layer 1.</p></div>';
     } else if (stageKey === 'ln1') {
       title = '"' + tokenText + '" · RMSNorm (pre-attention) · layer ' + (li + 1);
-      html = rmsBlock('RMSNorm', before, lf.ln1_weight, lf.ln1_out[ti], 'ε = 1e-5');
+      html = rmsBlock('RMSNorm', before, lf.ln1_weight, lf.ln1_out[ti], 'ε = 1e−5');
     } else if (stageKey === 'attn-only' && flow.is_moa && DATA.attention_routing) {
       // JetMoE MoA: attention router picked top-2 of 8 attention experts. Show the selected expert's
       // Q·Kᵀ→softmax→×V using its own W_q / W_o and the SHARED W_k / W_v. Same sub-tab / head-nav
@@ -2315,20 +2351,21 @@ export function bootArchExplorer(
           '<div class="math-eq">attention map = softmax( (Q · Kᵀ)/√' + hd + ' + M )\nhead output  = attention map · V</div>' +
           '<p class="math-hint" style="margin:8px 0 10px">M is the causal mask, added to the scaled scores <b>before</b> softmax: M[query, key] = 0 where key ≤ query (allowed), and −∞ where key &gt; query (a future token). Softmax then turns every −∞ into exactly 0.</p>' +
           '<div class="pdf-head-nav" style="justify-content:flex-start;margin:0 0 10px;"><button id="pdf-head-prev">‹</button><span>query head ' + (flowHead + 1) + ' / ' + nh + '</span><button id="pdf-head-next">›</button></div>' +
-          // ATTN_MAP_ALIGN: centred, not bottom-aligned — see the note on the MHA branch below.
-          // Beat tags: the two `attention map` blocks deliberately SHARE the `mmap` key — one matrix
-          // drawn twice (row A's result is row B's operand), so they must reveal together.
-          diagramRow([
-            beat('mq', matBlock('Q head (expert ' + (E + 1) + ')', '(' + numTokens + ',' + hd + ')', gridHTML(aef.q_by_head[flowHead], 10))), beat('mdot1', opSpan('·', false, true)),
-            beat('mk', matBlock('K head (shared)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], 10))), beat('mscale', opSpan('ᵀ/√' + hd + ' +', false, true)),
-            beat('mmask', matBlock('mask M', '(' + numTokens + ',' + numTokens + ')', maskGridHTML(numTokens, 22))), beat('msoft', opSpan('→ softmax →', false, true)),
-            beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(aef.attn_probs_all_heads[flowHead], 22))),
-          ], { align: 'center' }) +
-          diagramRow([
-            beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(aef.attn_probs_all_heads[flowHead], 22))), beat('mdot2', opSpan('·', false, true)),
-            beat('mv', matBlock('V head (shared)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], 10))), beat('meq', opSpan('=', false, true)),
-            beat('mout', matBlock('head output', '(' + numTokens + ',' + hd + ')', gridHTML(aef.head_output_by_head[flowHead], 10))),
-          ], { align: 'center' }) +
+          // ATTN_MAP_ALIGN: one shared middle column, operands centred, operators `noOffset` — see the
+          // note on the MHA branch below.
+          // Beat tags: row A's map is `mmap`, row B's copy is `mmap2` — same matrix, revealed one
+          // after the other (see `playAttnStep`). Everything else matches the MHA branch key for key.
+          attnMapGrid(
+            [beat('mq', matBlock('Q head (expert ' + (E + 1) + ')', '(' + numTokens + ',' + hd + ')', gridHTML(aef.q_by_head[flowHead], 10))), beat('mdot1', opSpan('·', false, true)),
+              beat('mk', matBlock('K head (shared)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], 10))), beat('mscale', opSpan('ᵀ/√' + hd + ' +', false, true))],
+            beat('mmask', matBlock('mask M', '(' + numTokens + ',' + numTokens + ')', maskGridHTML(numTokens, 22))),
+            [beat('msoft', opSpan('→ softmax →', false, true)),
+              beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(aef.attn_probs_all_heads[flowHead], 22)))],
+            beat('mmap2', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(aef.attn_probs_all_heads[flowHead], 22))),
+            [beat('mdot2', opSpan('·', false, true)),
+              beat('mv', matBlock('V head (shared)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], 10))), beat('meq', opSpan('=', false, true)),
+              beat('mout', matBlock('head output', '(' + numTokens + ',' + hd + ')', gridHTML(aef.head_output_by_head[flowHead], 10)))],
+          ) +
           '<p class="math-hint" style="margin:8px 0 0">Rows = query token, columns = key token. The other selected attention expert runs its own version of this in parallel.</p>' +
           MASK_LEGEND + '</div>', ATTN_PANEL_CLS);
         // ---- 4. Concatenate & project. Both selected experts get a row (2026-08-01, by request):
@@ -2489,32 +2526,35 @@ export function bootArchExplorer(
         '<div class="math-eq">attention map = softmax( (Q · Kᵀ)/√' + hd + ' + M )\nhead output  = attention map · V</div>' +
         '<p class="math-hint" style="margin:8px 0 10px">M is the causal mask, added to the scaled scores <b>before</b> softmax: M[query, key] = 0 where key ≤ query (allowed), and −∞ where key &gt; query (a future token). Softmax then turns every −∞ into exactly 0.</p>' +
         '<div class="pdf-head-nav" style="justify-content:flex-start;margin:0 0 10px;"><button id="pdf-head-prev">‹</button><span>head ' + (flowHead + 1) + ' / ' + nh + '</span><button id="pdf-head-next">›</button></div>' +
-        // ATTN_MAP_ALIGN (2026-08-01, by request): the Attention Map step's two rows are the one
-        // place `diagramRow`'s default `flex-end` reads wrong. Every other diagram in these modals
-        // pairs operands of similar height, so a shared bottom edge looks like a baseline; here a
-        // (tokens,tokens) map sits beside a (tokens,head_dim) slice — on a 9-token prompt the mask
-        // is ~2× the Q head's height — and bottom-aligning hangs the short grids off the tall one's
-        // floor. Centring puts each operand on the same optical axis, which is also how the product
-        // actually pairs up. The `noOffset` operators are a SEPARATE fix, not a consequence of the
-        // align change: `opSpan` hard-codes `align-self:center`, which overrides the row's
-        // `align-items` either way, so its default `padding-bottom:16px` was parking every operator
-        // 8px above the row centre in the old layout too. That nudge was tuned against a bottom-
-        // aligned row where the centre meant little; with the operands centred on their grids it is
-        // just a visible 8px error, so these rows drop it. Both attention branches (MHA + MoA) carry
-        // this; nothing else does.
-        // Beat tags: same keys and the same shared `mmap` as the MoA branch above, so one sequence
-        // in `playAttnStep` drives both.
-        diagramRow([
-          beat('mq', matBlock('Q head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.q_by_head[flowHead], 10))), beat('mdot1', opSpan('·', false, true)),
-          beat('mk', matBlock('K head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], 10))), beat('mscale', opSpan('ᵀ/√' + hd + ' +', false, true)),
-          beat('mmask', matBlock('mask M', '(' + numTokens + ',' + numTokens + ')', maskGridHTML(numTokens, 22))), beat('msoft', opSpan('→ softmax →', false, true)),
-          beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(lf.attn_probs_all_heads[flowHead], 22))),
-        ], { align: 'center' }) +
-        diagramRow([
-          beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(lf.attn_probs_all_heads[flowHead], 22))), beat('mdot2', opSpan('·', false, true)),
-          beat('mv', matBlock('V head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], 10))), beat('meq', opSpan('=', false, true)),
-          beat('mout', matBlock('head output', '(' + numTokens + ',' + hd + ')', gridHTML(lf.head_output_by_head[flowHead], 10))),
-        ], { align: 'center' }) +
+        // ATTN_MAP_ALIGN: the Attention Map step is the one diagram in these modals that is neither a
+        // `diagramRow` nor a `diagramGrid`. Two things pushed it out, on two dates:
+        // - **Centred, never bottom-aligned** (2026-08-01, by request). Every other diagram here pairs
+        //   operands of similar height, so `diagramRow`'s default `flex-end` looks like a baseline;
+        //   here a (tokens,tokens) map sits beside a (tokens,head_dim) slice — on a 9-token prompt the
+        //   mask is ~2× the Q head's height — and bottom-aligning hangs the short grids off the tall
+        //   one's floor. Centring puts each operand on the same optical axis, which is also how the
+        //   product actually pairs up.
+        // - **`attnMapGrid`, one shared middle column** (2026-08-02, by request): row B's map sits
+        //   directly under `mask M`. See that helper for why only the middle column is shared.
+        // The `noOffset` operators (3rd arg `true`) survive both changes and are a SEPARATE fix:
+        // `opSpan` hard-codes `align-self:center`, which overrides any container alignment either way,
+        // so its default `padding-bottom:16px` parks every operator 8px above the centre. With the
+        // operands centred on their grids that is just a visible 8px error, so all five drop it. Both
+        // attention branches (MHA + MoA) carry this; nothing else does.
+        // Beat tags: same keys as the MoA branch above, so one sequence in `playAttnStep` drives both.
+        // The two `attention map` blocks are `mmap` (row A) and `mmap2` (row B) — identical calls on
+        // identical data, differing only in the key, so they cannot drift.
+        attnMapGrid(
+          [beat('mq', matBlock('Q head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.q_by_head[flowHead], 10))), beat('mdot1', opSpan('·', false, true)),
+            beat('mk', matBlock('K head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], 10))), beat('mscale', opSpan('ᵀ/√' + hd + ' +', false, true))],
+          beat('mmask', matBlock('mask M', '(' + numTokens + ',' + numTokens + ')', maskGridHTML(numTokens, 22))),
+          [beat('msoft', opSpan('→ softmax →', false, true)),
+            beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(lf.attn_probs_all_heads[flowHead], 22)))],
+          beat('mmap2', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(lf.attn_probs_all_heads[flowHead], 22))),
+          [beat('mdot2', opSpan('·', false, true)),
+            beat('mv', matBlock('V head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], 10))), beat('meq', opSpan('=', false, true)),
+            beat('mout', matBlock('head output', '(' + numTokens + ',' + hd + ')', gridHTML(lf.head_output_by_head[flowHead], 10)))],
+        ) +
         '<p class="math-hint" style="margin:8px 0 0">Rows = query token, columns = key token. All ' + nh + ' heads run this independently and in parallel.</p>' +
         MASK_LEGEND + '</div>', ATTN_PANEL_CLS);
 
@@ -2533,7 +2573,7 @@ export function bootArchExplorer(
         '<p class="math-hint" style="margin:8px 0 0">This is why it\'s called a "residual" connection: the attention block\'s output is added onto its own input rather than replacing it, so information from earlier layers is never fully discarded.</p></div>';
     } else if (stageKey === 'ln2') {
       title = '"' + tokenText + '" · RMSNorm (pre-' + (DATA.layers[li].tokens ? 'MoE' : 'FFN') + ') · layer ' + (li + 1);
-      html = rmsBlock('RMSNorm', lf.after_attn_residual[ti], lf.ln2_weight, lf.ln2_out[ti], 'ε = 1e-5');
+      html = rmsBlock('RMSNorm', lf.after_attn_residual[ti], lf.ln2_weight, lf.ln2_out[ti], 'ε = 1e−5');
     } else if (stageKey === 'moe-combine-all') {
       title = 'Combined Weighted Output · all ' + numTokens + ' tokens · layer ' + (li + 1);
       if (!DATA.layers[li].tokens) {
