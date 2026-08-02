@@ -593,7 +593,19 @@ footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line
 .layer-card-row .pdf-connector, .pdf-connector.shrinkable {
   flex-basis: 20px; min-width: 6px; overflow: hidden; justify-content: flex-end;
 }
-.layer-card-row .pdf-connector { flex-grow: 0; flex-shrink: 0.25; }
+/* The 46px above is measured from each connector's OWN container top, and the in-card ones sit in
+   `.layer-card-row` — below the card's top border + its 10px padding — so their arrows drew ~10.8px
+   lower than the three row-level ones and the forward path read as two stepped segments. Subtract
+   that inset back out. It is MEASURED (drawFlowArcs writes --card-inset off the live cardRow rect),
+   not the literal `10px + 1.5px`: the card's 1.5px border is snapped to device pixels, so the true
+   inset is 10.8px at DPR 1.25 and 11px at DPR 1 — and 0.7px on a 2px stroke is about one device
+   pixel, i.e. this same misalignment, just smaller. --card-inset is written to `#pdf-flow-row`
+   (which persists across rebuilds), not the card (which does not), so the 11px fallback only ever
+   covers the very first frame.
+   ⚠ This must NOT move up into the grouped rule above: `.pdf-connector.shrinkable` is ROW-level,
+   already on the line, and outside .layer-card's subtree — it would take the 11px fallback and land
+   11px too HIGH. */
+.layer-card-row .pdf-connector { flex-grow: 0; flex-shrink: 0.25; padding-top: calc(46px - var(--card-inset, 11px)); }
 .layer-card-row .pdf-connector svg, .pdf-connector.shrinkable svg { flex: 0 0 20px; }
 .pdf-connector.shrinkable { flex-grow: 0; flex-shrink: 0.25; }
 /* Same bargain for the Final RMSNorm itself: it is the only thin block outside the card, so its

@@ -1166,7 +1166,11 @@ export function bootArchExplorer(
   const SKIP_INK = 0.40;  // wrapper opacity — visibly subordinate to the 0.55 main flow line
   const LOOP_INK = 0.45;
   const LABEL_INK = 0.85; // lane captions read at this, independent of their arc's ink (laneLabel)
-  const FLOW_Y = 46 + 27; // .pdf-connector padding-top + the arrow's y inside its 54px viewBox
+  // .pdf-connector padding-top + the arrow's y inside its 54px viewBox. Measured from the CARD's top
+  // (== the flow row's top — the stage and card both start there), not the card row's: the in-card
+  // connectors subtract the card's inset back out so all 8 arrows share one line. Fallback only —
+  // drawFlowArcs reads the live value off a connector.
+  const FLOW_Y = 46 + 27;
 
   /** Rounded orthogonal polyline through axis-aligned points. */
   function orthoPath(pts: { x: number; y: number }[], r: number) {
@@ -1235,7 +1239,21 @@ export function bootArchExplorer(
     const add1 = rel(add1El.getBoundingClientRect(), cardBox);
     const add2 = rel(add2El.getBoundingClientRect(), cardBox);
     const row = rel(cardRow.getBoundingClientRect(), cardBox);
-    const flowY = row.t + FLOW_Y;
+    // Publish the card's own inset (top border + padding) so the in-card connectors can subtract it
+    // back out of their fixed 46px and draw on the SAME flow line as the row-level ones — see
+    // `.layer-card-row .pdf-connector` in moe.css. row.t IS that inset, already measured here after
+    // applyStageLock, and writing it cannot invalidate the rect it came from: cardRow's top does not
+    // depend on its children's padding.
+    // On pdfRow, NOT the card: buildPdfBlocks creates a fresh .layer-card every time, and a build
+    // that lands while the arch tab is mounted-but-hidden returns above without measuring — that
+    // card would then paint on the 11px CSS fallback. pdfRow persists, so every future card (and the
+    // tuck's cloneNode) inherits the last real measurement from its first frame.
+    pdfRow.style.setProperty('--card-inset', row.t + 'px');
+    // Read the flow line off a real connector rather than re-deriving it from FLOW_Y, so the arcs
+    // cannot drift from the arrows if that 46px ever changes. AFTER the write above: this
+    // getBoundingClientRect flushes layout, so it already reflects the new padding.
+    const connSvg = cardRow.querySelector('.pdf-connector svg');
+    const flowY = connSvg ? rel(connSvg.getBoundingClientRect(), cardBox).t + 27 : FLOW_Y;
     const laneY = row.b + SKIP_LANE;
 
     skipSvg.innerHTML = '';
