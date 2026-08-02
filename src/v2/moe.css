@@ -707,8 +707,12 @@ footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line
 /* The Final RMSNorm is the one thin block that lives in the ROW, not the card, so
    `align-self: stretch` would size it to the flex line — which now includes the stage's 44px
    loop-back margin, leaving it hanging below the loop arc like a column the loop passes through.
-   Pin it to the top instead; drawFlowArcs() sets its height to the card's measured height, so it
-   lines up with the deck rather than with the lane beneath it. */
+   Pin it to the top instead; drawFlowArcs() then gives it an explicit height AND margin-top,
+   measured off the CARD ROW, so both its edges land exactly on the two RMSNorm blocks inside the
+   card. It was sized to the whole CARD until 2026-08-02, which swallowed the card's 10px top inset
+   and 38px skip lane and made the one norm outside the deck ~50px taller than its own kind. It
+   therefore no longer lines up with the deck's box — that is the trade, and the block's meaning
+   (same operation as the in-card norms, just outside the loop) is what it lines up with instead. */
 .pdf-block.thin.final-norm { align-self: flex-start; }
 .pdf-block.thin h4 {
   writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; font-size: 11px; letter-spacing: 0.02em;

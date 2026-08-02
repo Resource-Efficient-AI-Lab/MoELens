@@ -1241,10 +1241,7 @@ export function bootArchExplorer(
   ) {
     const cardBox = card.getBoundingClientRect();
     const stageBox = stage.getBoundingClientRect();
-    // Measure the card with the seeded height still applied — the final norm is not in the stage,
-    // so it cannot feed back into what we are about to read.
     if (!cardBox.width || !stageBox.width) return; // tab hidden; the stageH seed stands
-    finalNormEl.style.height = cardBox.height + 'px';
     const rel = (box: DOMRect, host: DOMRect) => ({
       l: box.left - host.left, r: box.right - host.left, t: box.top - host.top, b: box.bottom - host.top,
     });
@@ -1264,6 +1261,20 @@ export function bootArchExplorer(
     // card would then paint on the 11px CSS fallback. pdfRow persists, so every future card (and the
     // tuck's cloneNode) inherits the last real measurement from its first frame.
     pdfRow.style.setProperty('--card-inset', row.t + 'px');
+    // Size the Final RMSNorm off the CARD ROW, not the card: it is a RMSNorm block and must be
+    // exactly as tall as the two inside the card (2026-08-02, by request — at the card's height it
+    // also swallowed the card's 38px skip lane and 10px top inset and loomed ~50px taller than its
+    // own kind). `row` gives both halves at once and reuses the very inset the in-card connectors
+    // subtract, so the two can't drift: marginTop = the card's top border + padding, so its top
+    // edge lands on the in-card norms' top edge, and the height is the flex line they stretch to.
+    // Consequence, not a bug: on DeepSeek this now RESIZES between the dense layer 1 and the MoE
+    // layers, because the in-card norms do. A running max would put the overshoot straight back.
+    // Written after the reads it depends on. It cannot invalidate the ones still to come either
+    // (the connector rect below, measured against the cardBox captured at the top): the final norm
+    // is now bounded by cardRow ≤ card ≤ stage + its loop margin, so it can never be the tallest
+    // item in .pdf-flow-row and shrinking it moves neither the row nor the card.
+    finalNormEl.style.height = (row.b - row.t) + 'px';
+    finalNormEl.style.marginTop = row.t + 'px';
     // Read the flow line off a real connector rather than re-deriving it from FLOW_Y, so the arcs
     // cannot drift from the arrows if that 46px ever changes. AFTER the write above: this
     // getBoundingClientRect flushes layout, so it already reflects the new padding.
@@ -1407,6 +1418,10 @@ export function bootArchExplorer(
   // compress the deck on a narrow viewport — a min-width would be an unbreakable floor and would
   // push Final Output past the panel's clip edge instead.
   let stageW = 0, stageH = 0;
+  // The card's own box, kept beside the lock so the Final RMSNorm's seed can back the card chrome
+  // out of stageH and land on the card ROW's height (see the seed below buildPdfBlocks's row).
+  // Not a running max — they are constants of the CSS, identical on every layer and model.
+  let cardPadY = 0, cardPadTop = 0;
   function applyStageLock(stage: HTMLElement, card: HTMLElement, cardRow: HTMLElement) {
     // Measure the card's NATURAL size: park the stage out of flow at max-content first, so a
     // narrow viewport can't compress the blocks into the reading and lock a too-small stage that
@@ -1419,6 +1434,8 @@ export function bootArchExplorer(
       parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
     const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) +
       parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    cardPadY = padY;
+    cardPadTop = parseFloat(cs.paddingTop) + parseFloat(cs.borderTopWidth);
     stageW = Math.max(stageW, Math.ceil(cardRow.offsetWidth + padX)); // running max — only grows
     stageH = Math.max(stageH, Math.ceil(cardRow.offsetHeight + padY));
     stage.style.position = '';
@@ -1811,13 +1828,16 @@ export function bootArchExplorer(
     pdfRow.appendChild(blocks[8]);
     applyStageLock(stage, card, cardRow);
     // See .pdf-block.thin.final-norm in moe.css: it is opted out of the flex line's stretch, so it
-    // needs an explicit height to sit level with the deck. Seeded from stageH here and refined
-    // from the card's real rect in drawFlowArcs below. Both, not either: stageH is a FLOOR, not the
-    // answer (applyStageLock measures at `width: max-content`, where the row wraps less and comes
-    // out shorter than it renders in flow — on DeepSeek's MoE layers that is a 32px gap), but it is
-    // the only figure available when the arch tab is mounted-but-hidden behind the Domain tab and
-    // every getBoundingClientRect() reads 0.
-    blocks[7].style.height = stageH + 'px';
+    // needs an explicit height and top offset to sit level with the two RMSNorm blocks INSIDE the
+    // card. Seeded from the lock here and refined from the card row's real rect in drawFlowArcs
+    // below. Both, not either: this is a FLOOR, not the answer (applyStageLock measures at
+    // `width: max-content`, where the row wraps less and comes out shorter than it renders in flow
+    // — on DeepSeek's MoE layers that is a 32px gap), but it is the only figure available when the
+    // arch tab is mounted-but-hidden behind the Domain tab and every getBoundingClientRect() reads
+    // 0. stageH covers the whole card, so the card's own chrome comes back off: the in-card norms
+    // stretch to the card ROW, which is stageH minus the padding and borders around it.
+    blocks[7].style.height = (stageH - cardPadY) + 'px';
+    blocks[7].style.marginTop = cardPadTop + 'px';
     const finalNormEl = blocks[7];
     // After the lock, never before: applyStageLock parks the stage out of flow at max-content to
     // take its measurement, and every rect read mid-lock is the parked one.
