@@ -348,10 +348,10 @@ export function bootArchExplorer(
   playBtn.onclick = () => {
     if (playTimer) { stopPlay(); return; }
     playBtn.textContent = '⏸ Stop';
-    // 4s a layer, not the prototype's 1.4s: each step fires the full routing animation (~1.4s of
+    // 3.5s a layer, not the prototype's 1.4s: each step fires the full routing animation (~1.4s of
     // traveling dots on the All-tokens grid) plus the per-token fan's beats, so the reader needs
     // the rest of the dwell to actually read the layer before it moves on.
-    playTimer = setInterval(() => setLayer((currentLayer + 1) % DATA.num_layers), 4000);
+    playTimer = setInterval(() => setLayer((currentLayer + 1) % DATA.num_layers), 3500);
   };
 
   // ---- tooltip ----
