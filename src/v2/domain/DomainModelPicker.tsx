@@ -6,9 +6,14 @@ interface DomainModelPickerProps {
 }
 
 /**
- * The Domain Specialization tab's Model dropdown, plus the tab's title beside it. Rendered by
- * MoeApp *above* the top-tab bar (not inside the tab panel), mirroring ArchPromptPicker: the
- * reader picks what they're looking at before picking which view of it they want.
+ * The Domain Specialization tab's Model dropdown. Rendered by MoeApp *above* the top-tab bar (not
+ * inside the tab panel), mirroring ArchPromptPicker: the reader picks what they're looking at
+ * before picking which view of it they want.
+ *
+ * The prototype's "Expert specialization by domain" `<h2>` sat beside the dropdown here and was
+ * removed 2026-08-02 by request — a deliberate divergence from `index_v2.html` (line 554), so keep
+ * it out when diffing. The tab bar's own "Domain Specialization" label already names the panel,
+ * and the sub-tab bar directly below names the view.
  */
 export function DomainModelPicker({ modelKey, onModelChange }: DomainModelPickerProps) {
   return (
@@ -26,7 +31,6 @@ export function DomainModelPicker({ modelKey, onModelChange }: DomainModelPicker
           </option>
         ))}
       </select>
-      <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Expert specialization by domain</h2>
     </div>
   );
 }
