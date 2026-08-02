@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import type { SampleToken } from '../../utils/domainStats';
@@ -14,33 +14,47 @@ const GAP = 4;
 const TOOLTIP_W = 224;
 /** Breathing room left between the tooltip and whatever edge would otherwise cut it. */
 const TOOLTIP_PAD = 8;
+/** Gap between the tooltip and the cell it points at, above or below. */
+const TOOLTIP_GAP = 8;
 
 /**
- * Horizontal bounds the tooltip has to stay inside: the viewport, narrowed by every ancestor that
- * clips. Both bounds are real here — loose in the panel nothing clips, so the viewport is the only
- * edge (a leftmost cell's tooltip is centred on a cell ~17px in and hangs 90px past x=0); inside
- * AllCategoriesModal the scrolling body clips at its own padding box, where a `window.innerWidth`
- * clamp would do nothing at all.
+ * Bounds the tooltip has to stay inside: the viewport, narrowed by every ancestor that clips. Every
+ * edge is real here — loose in the panel nothing clips, so the viewport is the only edge (a leftmost
+ * cell's tooltip is centred on a cell ~17px in and hangs 90px past x=0); inside AllCategoriesModal
+ * two ancestors clip, the scrolling body and the dialog panel, and a `window.innerWidth` clamp would
+ * do nothing at all.
  */
-function clipBounds(el: Element | null): { left: number; right: number } {
+function clipBounds(el: Element | null): {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+} {
   let left = 0;
-  // `clientWidth`, never `window.innerWidth` — the latter counts the vertical scrollbar's gutter,
-  // which is the one strip of the viewport that cannot show a tooltip.
+  let top = 0;
+  // `clientWidth`/`clientHeight`, never `window.innerWidth`/`innerHeight` — the latter count the
+  // scrollbar gutters, the one strip of the viewport that cannot show a tooltip.
   let right = document.documentElement.clientWidth;
-  // Per spec a `visible` axis computes to `auto`/`clip` when the other axis is not, so testing
-  // overflow-x alone also catches the modal's `overflow-y: auto` body.
+  let bottom = document.documentElement.clientHeight;
+  // Per spec a `visible` axis computes to `auto`/`clip` when the other axis is not, so either being
+  // non-visible means the element clips on both — hence one test, narrowing both axes.
   for (let node = el?.parentElement ?? null; node; node = node.parentElement) {
-    if (getComputedStyle(node).overflowX !== 'visible') {
+    const cs = getComputedStyle(node);
+    if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
       const r = node.getBoundingClientRect();
-      // Content is cut at the padding box minus any scrollbar, which is what clientLeft/clientWidth
-      // measure; the border-box rect would be a few px too generous on exactly the containers that
-      // scroll. The `||` fallbacks keep a non-HTML ancestor from poisoning the bound with NaN.
-      const inset = node.clientLeft || 0;
-      left = Math.max(left, r.left + inset);
-      right = Math.min(right, r.left + inset + (node.clientWidth || r.width));
+      // Content is cut at the padding box minus any scrollbar, which is what clientLeft/clientTop
+      // and clientWidth/clientHeight measure; the border-box rect would be a few px too generous on
+      // exactly the containers that scroll. The `||` fallbacks keep a non-HTML ancestor from
+      // poisoning a bound with NaN.
+      const insetX = node.clientLeft || 0;
+      const insetY = node.clientTop || 0;
+      left = Math.max(left, r.left + insetX);
+      right = Math.min(right, r.left + insetX + (node.clientWidth || r.width));
+      top = Math.max(top, r.top + insetY);
+      bottom = Math.min(bottom, r.top + insetY + (node.clientHeight || r.height));
     }
   }
-  return { left, right };
+  return { left, right, top, bottom };
 }
 
 /** Squarest grid that holds `n` experts — 8×8 for OLMoE/DeepSeek's 64. Narrow expert counts
@@ -75,7 +89,12 @@ const RECEDE = { scale: 0.9, opacity: 1, filter: 'drop-shadow(0 0 0 rgba(0,0,0,0
 interface HoverState {
   expert: number;
   x: number;
+  /** Top of the hovered cell, relative to the grid wrapper — where the tooltip's bottom edge sits
+   *  when it hangs above. */
   y: number;
+  /** ...and the cell's bottom, for the flipped placement. Stored rather than re-derived so the two
+   *  edges can't drift apart if the SVG's scale changes between the move and the layout pass. */
+  yBottom: number;
 }
 
 interface ExpertGridProps {
@@ -105,6 +124,11 @@ export function ExpertGrid({
   const [hover, setHover] = useState<HoverState | null>(null);
   const reducedMotion = usePrefersReducedMotion();
   const svgRef = useRef<SVGSVGElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  /** Vertical placement, decided after the tooltip has been laid out — its height depends on how
+   *  many sample-token chips the expert has, so it can't be known in the pointer handler. `null`
+   *  means "not measured yet"; the first paint of a hover uses the default `above`. */
+  const [tipTop, setTipTop] = useState<number | null>(null);
 
   const numExperts = freqs.length;
   const { cols, rows } = gridShape(numExperts);
@@ -119,6 +143,41 @@ export function ExpertGrid({
 
   const hoverFreq = hover ? freqs[hover.expert] : 0;
   const hoverTokens = hover ? sampleTokensFor(hover.expert) : [];
+
+  // Vertical placement, the companion to the horizontal clamp in the pointer handler. The tooltip
+  // hangs above its cell by default, which the top row of grids inside AllCategoriesModal cuts in
+  // half against the scrolling body's edge — so measure it and flip below when there is more room
+  // there. It has to happen here rather than in `onMouseMove` because the height depends on how
+  // many sample-token chips the expert has.
+  //
+  // Two rules keep this from oscillating. Only `height` is read off the tooltip's own rect — never
+  // its top, which reflects the placement being decided and would flip-flop forever; the cell's
+  // edges come from the SVG's rect plus the offsets stored at hover time. And `useLayoutEffect`, so
+  // the unmeasured first render is never painted (it is hidden rather than placed, so there is one
+  // coordinate convention here, not a pre- and post-measurement pair).
+  useLayoutEffect(() => {
+    const tip = tipRef.current;
+    const svg = svgRef.current;
+    if (!hover || !tip || !svg) {
+      setTipTop(null);
+      return;
+    }
+    const h = tip.getBoundingClientRect().height;
+    const svgTop = svg.getBoundingClientRect().top;
+    const { top: clipTop, bottom: clipBottom } = clipBounds(svg);
+    const cellTop = svgTop + hover.y;
+    const cellBottom = svgTop + hover.yBottom;
+    const spaceAbove = cellTop - TOOLTIP_GAP - (clipTop + TOOLTIP_PAD);
+    const spaceBelow = clipBottom - TOOLTIP_PAD - (cellBottom + TOOLTIP_GAP);
+    // Flip only when above genuinely fails *and* below is the better of the two, so a bottom-row
+    // cell in a short window stays where the reader expects it.
+    const below = h > spaceAbove && spaceBelow > spaceAbove;
+    const want = below ? cellBottom + TOOLTIP_GAP : cellTop - TOOLTIP_GAP - h;
+    // Neither side fits: degrade to fully visible rather than cut off.
+    const min = clipTop + TOOLTIP_PAD;
+    const max = clipBottom - TOOLTIP_PAD - h;
+    setTipTop((max < min ? min : Math.min(Math.max(want, min), max)) - svgTop);
+  }, [hover]);
 
   // Pop the top-k forward and recede the rest. They all fire together (no stagger); a springy
   // back.out(2) gives the snappy, physical "pop." Re-runs when the top set changes (slider drag).
@@ -221,6 +280,7 @@ export function ExpertGrid({
                     expert: id,
                     x: localX + (clamped - centre),
                     y: (y / (height + 2)) * rect.height,
+                    yBottom: ((y + CELL) / (height + 2)) * rect.height,
                   });
                 }}
               />
@@ -244,8 +304,21 @@ export function ExpertGrid({
 
       {hover && (
         <div
-          className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full rounded-md bg-paper p-3 shadow-overlay-float"
-          style={{ left: hover.x, top: hover.y - 8, width: TOOLTIP_W }}
+          ref={tipRef}
+          className="pointer-events-none absolute z-20 -translate-x-1/2 rounded-md bg-paper p-3 shadow-overlay-float"
+          style={{
+            left: hover.x,
+            top: tipTop ?? 0,
+            width: TOOLTIP_W,
+            // Laid out (so it can be measured) but never painted at an unplaced position — the
+            // layout effect above resolves `tipTop` before the browser paints this render.
+            // `visibility`, never `display: none` and never withholding the element until
+            // `tipTop` resolves: a hidden-but-laid-out box still reports its real height, and
+            // that measurement is the whole basis of the placement. Either "simplification"
+            // measures zero and puts every tooltip a tooltip's height out of place. (Same trap
+            // as `replayPop`'s `getBBox` reading zero under `display: none`.)
+            visibility: tipTop === null ? 'hidden' : undefined,
+          }}
           role="tooltip"
         >
           <p className="font-label text-xs text-ink">
