@@ -31,6 +31,9 @@ export function topKExperts(rates: number[], k = 8): number[] {
  * The tokens that most strongly routed to (layer, expert) for a category — reads
  * expert_token_idx (indexed by token_idx into domain_tokens, NOT pre-sorted by score despite the
  * data's field name) and sorts by routing score descending.
+ *
+ * Unaffected by the notebook's per-cell cap: what ships is the 40 highest-scoring pairs, so the
+ * top 3 by score are the same 3 they would be against the untruncated list.
  */
 export function tokensForExpert(
   data: DomainSpecializationData,

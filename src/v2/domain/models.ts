@@ -4,10 +4,10 @@
  * domain-side data files instead of the routing traces.
  *
  * All three now ship both files, so every model gets all five sub-tabs. Both files come from the
- * same pre-computation: six long (~400-token) passages, one per category, run through
- * `colab/extract_domain_specialization{,_jetmoe,_deepseek}.ipynb`. The corpus is byte-identical
- * across the three notebooks, so the six passages a reader sees under "Prompts" are the same
- * whichever model is selected.
+ * same pre-computation: 30 long passages, five per category, run through
+ * `colab/extract_domain_specialization{,_jetmoe,_deepseek}.ipynb` and concatenated into one token
+ * stream per category. The corpus is byte-identical across the three notebooks, so the passages a
+ * reader sees under "Prompts" are the same whichever model is selected.
  *
  * Deliberately NOT used here: each model's `<model>_routing_trace_umap.json`, which projects the
  * same per-(layer, expert) profiles but measured over the 12 short architecture prompts (~20

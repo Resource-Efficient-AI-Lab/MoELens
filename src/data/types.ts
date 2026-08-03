@@ -35,8 +35,17 @@ export interface DomainSpecializationData {
   domain_rate: Record<string, number[]>;
   /** [category] — flat decoded token strings for that category's passage. */
   domain_tokens: Record<string, string[]>;
-  /** [category][layer][expert] — array of [token_idx, routing_score] pairs. */
+  /** [category][layer][expert] — array of [token_idx, routing_score] pairs, in passage order.
+   *  TRUNCATED: with five ~400-token passages per category this field alone would be tens of
+   *  megabytes, so the notebook ships only the 40 highest-scoring pairs per cell (re-sorted back
+   *  into passage order). Never read `.length` as "how many tokens routed here" — that is
+   *  expert_token_count. */
   expert_token_idx: Record<string, [number, number][][][]>;
+  /** [category][layer][expert] — the untruncated number of tokens that routed to this cell, i.e.
+   *  what expert_token_idx[...].length would have been before the cap. Optional: data files
+   *  generated before the five-passage change have no such key, and consumers fall back to the
+   *  array length, which was exact for those files. */
+  expert_token_count?: Record<string, number[][]>;
   /** [category] — top 12 {layer, expert, activation_rate}, ranked by raw activation_rate. */
   top_specialists: Record<string, TopSpecialist[]>;
   /** DeepSeek only: layer indices that are plain dense FFNs, whose per-expert rows are therefore

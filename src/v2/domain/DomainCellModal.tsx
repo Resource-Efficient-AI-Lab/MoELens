@@ -48,9 +48,14 @@ export function DomainCellModal({ data, cell, onClose }: DomainCellModalProps) {
 
   const pairs = data.expert_token_idx[category]?.[layer]?.[expert] ?? [];
   const tokens = data.domain_tokens[category] ?? [];
+  // expert_token_idx is already capped in the notebook (40 highest-scoring pairs per cell), so
+  // its length is not the number of tokens that routed here — expert_token_count is. Older data
+  // files ship no such key and their arrays are untruncated, hence the fallback. `cap` stays as
+  // this component's own display guard; against capped data it never binds.
+  const routed = data.expert_token_count?.[category]?.[layer]?.[expert] ?? pairs.length;
   const cap = 60;
   const chips = pairs.slice(0, cap).map(([idx]) => tokens[idx]);
-  const overflow = Math.max(0, pairs.length - cap);
+  const overflow = Math.max(0, routed - chips.length);
 
   return (
     <div
@@ -118,7 +123,7 @@ export function DomainCellModal({ data, cell, onClose }: DomainCellModalProps) {
 
         <div className="mt-4">
           <p className="font-label text-[0.65rem] uppercase tracking-wide text-muted">
-            Real tokens routed here ({pairs.length})
+            Real tokens routed here ({routed})
           </p>
           {chips.length > 0 ? (
             <div className="mt-1.5 flex flex-wrap gap-1">
@@ -133,7 +138,7 @@ export function DomainCellModal({ data, cell, onClose }: DomainCellModalProps) {
             </div>
           ) : (
             <p className="mt-1.5 font-body text-xs text-muted">
-              None: no token in the {label} passage selected this expert at this layer.
+              None: no token in the {label} passages selected this expert at this layer.
             </p>
           )}
         </div>
