@@ -341,7 +341,7 @@ function ExpertsUmapSection({
 
       <p className="math-hint" style={{ margin: '0 0 8px' }}>
         {pairCount ? `All ${pairCount}` : 'All'} (layer, expert) pairs projected to 2D by
-        activation-profile similarity, so experts that fire on the same kinds of tokens sit near each
+        activation-profile similarity, Experts that fire on the same kinds of tokens sit near each
         other. Toggle categories in to see how their clusters relate; hover a dot for its strongest
         tokens.
       </p>

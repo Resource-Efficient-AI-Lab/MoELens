@@ -69,7 +69,7 @@ export function PromptsSection({ data }: { data: DomainSpecializationData }) {
 
   return (
     <div>
-      <p className="max-w-[62ch] font-body text-base leading-relaxed text-ink">
+      <p className="math-hint" style={{ margin: '0 0 8px' }}>
         The real passages each category&rsquo;s routing statistics were computed from
         {perCategory > 1
           ? ` — ${perCategory} per category, run through the model one after another and counted together.`
