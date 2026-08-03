@@ -231,7 +231,10 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
   const embedHtml = useMemo(() => ({ __html: outer ? flowBlockInnerHtml(outer.embed) : '' }), [outer]);
   const finalNormHtml = useMemo(() => ({ __html: outer ? flowBlockInnerHtml(outer.finalNorm) : '' }), [outer]);
   const finalOutputHtml = useMemo(() => ({ __html: outer ? flowBlockInnerHtml(outer.finalOutput) : '' }), [outer]);
+  // Two keys onto ONE stage: same body, different header title, so each block's modal is named
+  // after the block that was clicked (see the 'final-output' branch in buildFlowStage).
   const openFinalOutput = useCallback(() => archApiRef.current?.openStage('final-output'), []);
+  const openFinalNorm = useCallback(() => archApiRef.current?.openStage('final-norm'), []);
 
   /** The standalone "Parameter count" panel. Model-level facts only — every branch reads just
    *  `DATA` fields and arithmetic, with no per-layer, per-token or `getComputedStyle` input — so it
@@ -371,7 +374,7 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
                   <FlowConnector shrinkable />
                   <div className="layer-stage" />
                   <FlowConnector />
-                  <FlowBlock content={outer.finalNorm} html={finalNormHtml} onClick={openFinalOutput} />
+                  <FlowBlock content={outer.finalNorm} html={finalNormHtml} onClick={openFinalNorm} />
                   <FlowConnector shrinkable />
                   <FlowBlock content={outer.finalOutput} html={finalOutputHtml} onClick={openFinalOutput} />
                 </>
@@ -434,10 +437,11 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
         <div className="math-modal">
           <div className="math-modal-header">
             <h3 id="math-modal-title">{mathStage ? mathStage.payload.title : 'Matrix arithmetic'}</h3>
-            {/* Header slot: the sub-tab bar for stages that own one — today the Attention modal's
-                "Attention" label + its step pills. They name and navigate the whole modal, so they
-                belong to its chrome, level with ✕, exactly like the Router modal's header. Stages
-                without one supply '', which is what stops a stale bar outliving its panels. */}
+            {/* Header slot: where a stage is NAMED, level with ✕, exactly like the Router modal's
+                header — the Attention modal's "Attention" label + its step pills (attnSubTabBar),
+                or a plain bold title for the stages that have no sub-tabs (stageTitleBar: both
+                RMSNorms, both Residual adds, Final RMSNorm, Final Output). Stages that supply ''
+                stay unnamed, and that '' is also what stops a stale bar outliving its panels. */}
             <div id="math-modal-header-slot" dangerouslySetInnerHTML={headerHtml} />
             <button className="math-modal-close" id="math-modal-close" onClick={closeMathModal}>✕</button>
           </div>

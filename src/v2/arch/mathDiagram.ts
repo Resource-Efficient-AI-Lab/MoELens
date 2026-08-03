@@ -245,13 +245,16 @@ export function opSpan(sym: string, big?: boolean, noOffset?: boolean) {
  *  the RMSNorm `weight γ` row, which is elementwise (`⊙`, Hadamard), not a matmul. */
 export function wDims(out: number, inn: number) { return '(' + out + ',' + inn + ')ᵀ = (' + inn + ',' + out + ')'; }
 export const TRANSPOSE_NOTE = 'Weights are shown in PyTorch’s stored <b>(out, in)</b> shape and used transposed in the multiply, the same convention as <b>nn.Linear</b>.';
+/** `data-diagram` on both containers below is what `playStageReveal` walks (archExplorer.ts): its
+ *  DIRECT CHILDREN are the beats, in DOM order, which is reading order at both call sites.
+ *  `diagramRow` needs no `data-cols` — every child is its own beat. See `stagedRoot`. */
 export function diagramRow(blocks: string[], opts?: { nowrap?: boolean; align?: 'flex-end' | 'center' }) {
   const nowrap = opts && opts.nowrap;
   const align = (opts && opts.align) || 'flex-end';
   const style = nowrap
     ? 'display:flex;align-items:' + align + ';gap:8px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;margin:8px 0 12px;'
     : 'display:flex;align-items:' + align + ';gap:8px;flex-wrap:wrap;justify-content:center;margin:8px 0 12px;';
-  return '<div style="' + style + '">' + blocks.join('') + '</div>';
+  return '<div data-diagram style="' + style + '">' + blocks.join('') + '</div>';
 }
 // A multi-row diagram where every row shares the same N columns, so operands/operators/results
 // line up vertically row-to-row instead of each row independently centering its own content.
@@ -260,7 +263,11 @@ export function diagramGrid(rows: string[][], cols: number, opts?: { big?: boole
   const colGap = opts && opts.colGap != null ? opts.colGap : (big ? 22 : 16);
   const rowGap = opts && opts.rowGap != null ? opts.rowGap : (big ? 28 : 20);
   const ml = opts && opts.center ? 'auto' : '0';
-  let html = '<div style="margin-left:' + ml + ';margin-right:auto;width:fit-content;max-width:100%;' +
+  // `data-cols` is what makes `playStageReveal` group this grid BY COLUMN rather than child by
+  // child: children land row-major below, so child i sits in column i % cols, and one column is one
+  // beat. That is the same grouping the Attention `proj` step gets by hand — its Q/K/V rows share
+  // the `stream`/`mul`/`wmat` beat keys — so a 3×5 SwiGLU grid reads as 5 steps, not 15.
+  let html = '<div data-diagram data-cols="' + cols + '" style="margin-left:' + ml + ';margin-right:auto;width:fit-content;max-width:100%;' +
     'display:grid;grid-template-columns:repeat(' + cols + ',auto);align-items:end;' +
     'column-gap:' + colGap + 'px;row-gap:' + rowGap + 'px;padding:6px 0 10px;">';
   rows.forEach((row) => { html += row.join(''); });
@@ -347,6 +354,16 @@ export function attnSubTabBar(steps: { key: string; label: string }[], active: s
       '" type="button" role="tab" aria-selected="' + (s.key === active) + '">' + (i + 1) + '. ' + s.label + '</button>').join('') +
     '</div></div>';
 }
+/** Header title for a stage that has NO sub-tabs (the two RMSNorms, the two Residual adds, the
+ *  Final RMSNorm and Final Output). Same slot, same wrapper and therefore the same bold 15px h3 as
+ *  `attnSubTabBar`'s "Attention", so every named modal is named in one place and one style rather
+ *  than each stage inventing its own heading. `#math-modal-title` stays display:none — this bar is
+ *  still the only place a math modal carries a visible name.
+ *  No sub-tabs inside it, and nothing wires it: `wireAttnSubTabs` queries `#attn-sub-tabs` and
+ *  `wireMathSubTabs` queries inside `#math-content`, so a bare bar is inert on both paths. */
+export function stageTitleBar(label: string) {
+  return '<div class="math-subtab-bar"><h3>' + label + '</h3></div>';
+}
 /** One step's panel. Only the active one is visible; the rest ship collapsed, exactly as before —
  *  the sub-tab click handler flips `display` on these same ids.
  *  `cls` exists for the `ATTN_PANEL_CLS` these panels all pass (`no-cell-anim beat-armed`): their
@@ -358,3 +375,25 @@ export function attnPanel(key: string, active: string, inner: string, cls?: stri
   return '<div class="math-subtab-panel' + (cls ? ' ' + cls : '') + '" id="attn-subtab-' + key + '"' +
     (key === active ? '' : ' style="display:none;"') + '>' + inner + '</div>';
 }
+
+/** Every NON-attention math stage's reveal root — the counterpart of `ATTN_PANEL_CLS`, and the
+ *  three classes do the same three jobs here:
+ *  - `mm-staged` scopes the arming rules in moe.css to these roots. It has to be there: an
+ *    unscoped `[data-diagram] > *` rule would also arm `attnMapGrid`'s wrapper cells on the
+ *    Attention `map` step, whose tweens address the `matBlock`s INSIDE those wrappers — the
+ *    wrappers would never unhide and the step would render blank.
+ *  - `no-cell-anim` opts these cells out of the shared `mm-appear` keyframe, exactly as it does for
+ *    the attention panels. It is what lets `mmDelay` and `.mm-cell` stay untouched: the inline
+ *    `animation-delay` every cell still carries simply goes inert.
+ *  - `beat-armed` paints frame 0 from CSS, so the panel's first paint is already the start state.
+ *    ⚠ `playStageReveal` MUST strip it on every exit path or the stage renders blank.
+ *  It must ship INSIDE the HTML string, never be added later: `mountStage` runs from a `useEffect`
+ *  (i.e. after paint), so a class applied there would flash the finished diagram first.
+ *  `armed` is false for a build that already knows its reveal will be skipped — today only the
+ *  Router popup's automatic rebuild under ▶ Step through layers. Arming is a property of the HTML
+ *  and `mountStage` unarms only after paint, so a skipped stage that still shipped `beat-armed`
+ *  would paint one frame at opacity 0 on every 3.5s tick: a blink, and a visible one. The other two
+ *  classes stay either way — the cells must not fall back to `mm-appear`, and the arming rules must
+ *  stay scoped to `.mm-staged` roots. */
+export function stagedCls(armed = true) { return 'mm-staged no-cell-anim' + (armed ? ' beat-armed' : ''); }
+export function stagedRoot(inner: string, armed = true) { return '<div class="' + stagedCls(armed) + '">' + inner + '</div>'; }

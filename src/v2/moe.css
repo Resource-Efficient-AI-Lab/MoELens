@@ -356,6 +356,22 @@ footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line
    that every `[data-beat]` either holds `.mm-cell`s or is one of the operator keys. */
 .beat-armed .mm-cell { opacity: 0; transform: scale(0.4); }
 .beat-armed [data-beat]:not(:has(.mm-cell)) { opacity: 0; transform: scale(0.8); }
+/* The same arming, for every OTHER math modal (playStageReveal). Those stages carry no `data-beat`
+   — their beats are the direct children of a `[data-diagram]` container, in DOM order — so the
+   operators are targeted by the absence of grid cells here too, one level down from the rule above.
+   ⚠ The `.mm-staged` prefix is load-bearing and must not be dropped for brevity: an unscoped
+   `[data-diagram] > *` would also arm `attnMapGrid`'s wrapper cells on the Attention `map` step,
+   and that step's tweens address the matBlocks INSIDE those wrappers, so the wrappers would stay
+   at opacity 0 and the whole step would render blank. */
+.mm-staged.beat-armed [data-diagram]:not([data-sweep]) > *:not(:has(.mm-cell)) { opacity: 0; transform: scale(0.8); }
+/* A sweep container is a LIST, not an equation (only `moe-combine-all` today): the beat is the
+   whole row, because four of each row's five children are text and revealing only the colour strip
+   would leave the panel four-fifths visible at frame 0. So arm the rows and hand their cells back —
+   the second selector outranks `.beat-armed .mm-cell` above, without which the strips would stay
+   invisible inside a row that has already been revealed. A rise, not a scale: these rows are
+   full-width bordered cards, the same shape `math-pop` below already rises rather than scales. */
+.mm-staged.beat-armed [data-diagram][data-sweep] > * { opacity: 0; transform: translateY(4px); }
+.mm-staged.beat-armed [data-diagram][data-sweep] .mm-cell { opacity: 1; transform: none; }
 .math-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .math-head .chip { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
 .math-block { margin-bottom: 16px; }
@@ -674,8 +690,13 @@ footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line
 .pdf-block:hover .pdf-click-hint {
   opacity: 1; transform: translateX(-50%) translateY(0);
 }
-.pdf-block.thin .pdf-click-hint { bottom: auto; top: 100%; transform: translateX(-50%) translateY(-6px); margin: 10px 0 0; }
-.pdf-block.thin:hover .pdf-click-hint { transform: translateX(-50%) translateY(0); }
+/* The pill sits ABOVE every block, thin ones included. `.pdf-block.thin` used to flip it below
+   (`bottom: auto; top: 100%`), which made the five thin blocks — both RMSNorms, both Residuals and
+   the Final RMSNorm — behave differently from Attention and the MoE block on hover. Removed
+   2026-08-03, by request; don't reintroduce the flip. Nothing clips it: thin blocks are
+   `align-self: stretch` in a `align-items: flex-start` row, so their top edge is level with
+   Attention's and the pill lands exactly where Attention's already does (~30px above the card's top
+   border), and `.pdf-scroll` clips on x only. */
 
 .pdf-token-chip {
   position: relative; display: inline-block; padding: 4px 10px; margin: 2px 4px 2px 0;

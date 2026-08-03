@@ -30,7 +30,8 @@ import {
   ATTN_STEPS_MHA, ATTN_STEPS_MOA, MASK_LEGEND, TRANSPOSE_NOTE,
   attnMapGrid, attnPanel, attnSubTabBar, beat, buildAttnGridHTML, buildGridHTML,
   buildHeadStripHTML, buildMaskGridHTML, buildStripHTML, diagramGrid, diagramRow, dotPhrase,
-  escapeHtml, expertStripWithNumbers, matBlock, opSpan, padGridRows, resultBlock, wDims,
+  escapeHtml, expertStripWithNumbers, matBlock, opSpan, padGridRows, resultBlock,
+  stageTitleBar, stagedCls, stagedRoot, wDims,
 } from './mathDiagram';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -525,6 +526,13 @@ export function bootArchExplorer(
   function buildMathCell(): StagePayload | null {
     if (!selected) return null;
     stageSkipReplay = false; // this stage has no attention panels, but never inherit a stale skip
+    // This popup is the ONE stage that rebuilds without the reader asking: `setLayer` calls
+    // `renderMath`, so ▶ Step through layers re-emits it every 3.5s and React re-runs `mountStage`
+    // for a genuinely new payload. Only a fresh grid-cell click should replay the reveal —
+    // otherwise a ~2.8s unfold would restart mid-read on every tick. Same two-variable shape as
+    // `skipAttnReplayOnce`/`stageSkipReplay`, and for the same StrictMode reason (see below).
+    stageSkipReveal = !revealCellOnce;
+    revealCellOnce = false;
     const { ti, e } = selected;
     const layer = DATA.layers[currentLayer];
     if (!layer.tokens) return null; // DeepSeek dense layer — no selectable experts
@@ -560,7 +568,13 @@ export function bootArchExplorer(
       '</div>';
 
     // ---- 1. Router diagram: real hidden vector × real W_router = real softmax probs ----
-    html += '<div class="math-subtab-panel" id="math-subtab-router">';
+    // Each sub-tab panel is its OWN staged reveal root (not the popup as a whole): the expert panel
+    // ships display:none, and a single shared root would be unarmed by the router panel's play and
+    // leave the expert diagram fully visible the moment its pill is clicked.
+    // Only the ROUTER panel drops its arming on a skipped build — it is the one on screen, so it is
+    // the one that would blink. The expert panel is hidden at that moment and stays armed, which is
+    // what lets its own sub-tab click still play a reveal after a step-through rebuild.
+    html += '<div class="math-subtab-panel ' + stagedCls(!stageSkipReveal) + '" id="math-subtab-router">';
     html += '<div class="math-block"><h3>1. Router</h3>';
     html += diagramRow([
       matBlock('hidden state h', '(1, ' + H + ')', stripHTML(hVec, 5)),
@@ -579,7 +593,7 @@ export function bootArchExplorer(
     html += '</div>';
 
     // ---- 2. Expert FFN ----
-    html += '<div class="math-subtab-panel" id="math-subtab-expert" style="display:none;">';
+    html += '<div class="math-subtab-panel ' + stagedCls() + '" id="math-subtab-expert" style="display:none;">';
     if (isTop) {
       const gw = DATA.expert_weights[currentLayer + '_' + e];
       const outVec = DATA.expert_outputs[ti + '_' + currentLayer + '_' + e];
@@ -643,6 +657,12 @@ export function bootArchExplorer(
         mathContent.querySelectorAll('.math-subtab-panel').forEach((panel) => {
           (panel as HTMLElement).style.display = (panel.id === 'math-subtab-' + btn.dataset.mtab) ? '' : 'none';
         });
+        // Play whichever panel just became visible, the way `wireAttnSubTabs` does. The expert
+        // panel ships display:none, so its reveal cannot run at mount time — nothing here measures
+        // geometry, so BUILDING it hidden is harmless, but playing it hidden would burn it unseen.
+        // A click is always the reader asking, so it replays even under the step-through guard.
+        stageSkipReveal = false;
+        playStageReveal();
       };
     });
   }
@@ -661,6 +681,7 @@ export function bootArchExplorer(
     const r = (ev.target as Element).closest('.expert-cell') as SVGRectElement | null;
     if (!r) return;
     selected ={ ti: +(r.dataset.token || 0), e: +(r.dataset.expert || 0) };
+    revealCellOnce = true; // the only path that means "the reader asked for this popup"
     renderMath(); // opens the modal through React — see the onOpenStage callback
   };
   // Closing (✕, backdrop click, Escape) is React state now; the header slot empties with it,
@@ -1713,6 +1734,15 @@ export function bootArchExplorer(
    *  would be gone by the second and the head ‹ › would replay the full ~3.9s reveal after all.
    *  It is cleared by the next build instead, i.e. by the next genuine open. */
   let stageSkipReplay = false;
+  /** `playStageReveal`'s pair of the two flags above, for the non-attention stages.
+   *  `revealCellOnce` is set by the grid-cell click alone; `buildMathCell` turns it into
+   *  `stageSkipReveal`, which the play READS AND NEVER CLEARS — same StrictMode reasoning as
+   *  `stageSkipReplay`. What it protects against is the Router popup's automatic rebuild: it is the
+   *  one stage `setLayer` re-emits, so ▶ Step through layers would otherwise restart its unfold
+   *  every 3.5s. A flow stage is built once per open (`openFlowStage` nulls `selected`, so
+   *  `renderMath` early-returns for it), which is why `buildFlowStage` just clears it. */
+  let revealCellOnce = false;
+  let stageSkipReveal = false;
   /** The visible step panel, or null. Only one is ever displayed. */
   function visibleAttnPanel(): HTMLElement | null {
     const panels = [...document.querySelectorAll('#math-content .math-subtab-panel[id^="attn-subtab-"]')] as HTMLElement[];
@@ -1858,6 +1888,102 @@ export function bootArchExplorer(
     }
   }
 
+  // ---- The same staged reveal, for every OTHER math modal ---------------------------------------
+  /* Every other stage used to arrive all at once (the `mm-appear` keyframe, ~0.56s) while the
+   * Attention steps read left to right over ~3.3s. They now unfold at step 1's pace too — but with
+   * a GENERIC walker rather than eleven hand-written beat schedules, because three things about
+   * these diagrams already carry the ordering:
+   *   - `diagramRow`/`diagramGrid` (mathDiagram.ts) emit ONE container, and their blocks land in
+   *     the DOM in reading order — `diagramGrid` flattens its rows row-major.
+   *   - `matBlock`/`resultBlock`/`opSpan`/`GRID_BLANK` each emit exactly one outer <div>, so
+   *     "container child" is already the right unit of beat.
+   *   - `proj` itself groups its 3-row grid BY COLUMN (Q, K and V share the `stream`/`mul`/`wmat`
+   *     keys), so `beat = childIndex % cols` reproduces the reference animation's own grouping
+   *     instead of inventing one. A 3×5 SwiGLU grid therefore reads as 5 steps, not 15.
+   * Timing is `playAttnStep`'s: the same two `fromTo`s, and the same `ATTN_STEP_EXTRA` stretch
+   * through one `timeScale`, so "matches Project Q/K/V" holds by construction rather than by two
+   * sets of literals that can drift. No `ATTN_STEP_SLOW` entry — that multiplier is `concat`'s
+   * alone. A five-element stage lands at ~2.84s against proj's 3.28s: same rhythm, two beats fewer.
+   * Everything `playAttnStep`'s header warns about applies here unchanged — `.beat-armed` must come
+   * off on EVERY exit path, nothing may measure geometry (a root can be built under display:none),
+   * and the timeline is killed before any innerHTML swap. It shares `attnTl`, so `killAttnTimeline`
+   * and the Api stay exactly as they were: only one panel is ever visible, so only one of the two
+   * plays can have a live timeline. */
+  const STAGE_BEAT_CELLS = 0.36; // one beat's stagger span, mid-range of proj's 0.32–0.45
+  const STAGE_ADVANCE_CELLS = 0.46; // cursor step after a beat that drew grids
+  const STAGE_ADVANCE_OPS = 0.30; //  … and after one that drew only operators
+  const STAGE_SWEEP_AMOUNT = 0.90; // `data-sweep` lists, the `cheads` span
+  /** The visible reveal root, or null. A stage has one; the Router popup has one per sub-tab panel
+   *  and only the displayed one may play. `offsetParent` would be the shorter test but it is null
+   *  for a `position:fixed` ancestor, which the modal is — so walk the `display` chain instead. */
+  function visibleStagedRoot(): HTMLElement | null {
+    const roots = [...document.querySelectorAll('#math-content .mm-staged')] as HTMLElement[];
+    return roots.find((r) => {
+      for (let el: HTMLElement | null = r; el && el.id !== 'math-content'; el = el.parentElement) {
+        if (el.style.display === 'none') return false;
+      }
+      return true;
+    }) || null;
+  }
+  function playStageReveal() {
+    const root = visibleStagedRoot();
+    if (!root) return;
+    killAttnTimeline();
+    const unarm = () => root.classList.remove('beat-armed');
+    if (stageSkipReveal) { unarm(); return; }
+    if (reducedMotion) {
+      unarm();
+      gsap.set(root.querySelectorAll('[data-diagram] > *, .mm-cell'), { clearProps: 'opacity,transform' });
+      return;
+    }
+    const tl = gsap.timeline();
+    attnTl = tl;
+    let t = 0;
+    root.querySelectorAll('[data-diagram]').forEach((container) => {
+      const kids = [...container.children] as HTMLElement[];
+      if (!kids.length) return;
+      // A sweep container is a list, not an equation: one stagger down the whole thing, and the
+      // beat is the ROW (its cells ride their row's opacity — see the moe.css rules). Without this,
+      // `moe-combine-all`'s 17 token rows would become 17 sequential beats.
+      if ((container as HTMLElement).dataset.sweep) {
+        tl.fromTo(kids, { opacity: 0, y: 4 },
+          { opacity: 1, y: 0, duration: 0.30, ease: 'power2.out', force3D: false, stagger: { amount: STAGE_SWEEP_AMOUNT } }, t);
+        t += STAGE_SWEEP_AMOUNT + 0.14;
+        return;
+      }
+      // `data-cols` present ⇒ a grid, and children are row-major, so column index IS the beat.
+      // Absent ⇒ a row, where every child is its own beat.
+      const cols = +((container as HTMLElement).dataset.cols || 0);
+      const beats: HTMLElement[][] = [];
+      kids.forEach((k, i) => {
+        const b = cols > 0 ? i % cols : i;
+        (beats[b] || (beats[b] = [])).push(k);
+      });
+      beats.forEach((group) => {
+        if (!group) return; // a ragged grid would leave a hole; today none is
+        const cells = group.flatMap((g) => [...g.querySelectorAll('.mm-cell')]);
+        // Blocks with no cells of their own — operators, and the empty `resultBlock`s in the SwiGLU
+        // grids — are the ones CSS armed by absence, so they are the ones tweened as whole blocks.
+        const plain = group.filter((g) => !g.querySelector('.mm-cell'));
+        if (cells.length) {
+          tl.fromTo(cells, BEAT_CELL_FROM,
+            { opacity: 1, scale: 1, duration: 0.26, ease: 'power2.out', force3D: false, stagger: { amount: STAGE_BEAT_CELLS } }, t);
+        }
+        if (plain.length) tl.fromTo(plain, BEAT_OP_FROM, { opacity: 1, scale: 1, duration: 0.3, ease: 'power2.out' }, t);
+        // A column that mixes the two takes the longer advance, so the next beat never lands on top
+        // of a grid still fading in.
+        t += cells.length ? STAGE_ADVANCE_CELLS : STAGE_ADVANCE_OPS;
+      });
+    });
+    const d = tl.duration();
+    if (d > 0) tl.timeScale(d / (d + ATTN_STEP_EXTRA));
+    unarm();
+    if (!root.dataset.beatSkipWired) {
+      root.dataset.beatSkipWired = '1';
+      root.addEventListener('click', () => { if (attnTl) attnTl.progress(1); });
+    }
+  }
+
   /** `attnTab` names which step of the Attention modal opens (see ATTN_STEPS_*). Every opener that
    *  means "show me this block" leaves it at 'proj' — the block's first step, so the modal starts
    *  where the block does; the controls that live *inside* a step and re-render the modal (the head
@@ -1874,6 +2000,9 @@ export function bootArchExplorer(
     // Transfer the head ‹ ›'s one-shot flag onto the stage being built (see `stageSkipReplay`).
     stageSkipReplay = skipAttnReplayOnce;
     skipAttnReplayOnce = false;
+    // A flow stage is only ever built from a block click, i.e. always a genuine open — the
+    // step-through rebuild that `stageSkipReveal` exists for reaches the Router popup alone.
+    stageSkipReveal = false;
     const ti = flowToken, li = currentLayer;
     const lf = flow.per_layer[li];
     const tokenText = tokens[ti].text.trim() || '(space)';
@@ -1884,7 +2013,10 @@ export function bootArchExplorer(
     // Shared by every batched stage (RMSNorm, both Residual adds) so one edit can't leave two
     // diagrams disagreeing about the shape they are drawing.
     const allDims = '(' + numTokens + ', ' + H + ')';
-    // Rendered into the modal header (level with ✕), not into the body — see attnSubTabBar().
+    // `headerExtra` is rendered into the modal header (level with ✕), not into the body — see
+    // attnSubTabBar() for the Attention modal's bar and stageTitleBar() for the plain titles the
+    // norm / residual / final stages carry. `title` itself is NOT displayed (#math-modal-title is
+    // display:none); the stages that are named are named through here.
     let title = '', html = '', headerExtra = '';
 
     if (stageKey === 'embed') {
@@ -1900,6 +2032,9 @@ export function bootArchExplorer(
       // Batched, so the title names the token count rather than a token — nothing here is scoped to
       // flowToken any more (same shape as 'moe-combine-all').
       title = 'RMSNorm (pre-attention) · all ' + numTokens + ' tokens · layer ' + (li + 1);
+      // Which of the two per-layer norms this is, in the header — the body diagram is identical for
+      // both, so without it the reader has to work out from the copy which block they clicked.
+      headerExtra = stageTitleBar('RMSNorm (Pre-attention)');
       html = rmsBlock('RMSNorm', beforeAll, lf.ln1_weight, lf.ln1_out, 'ε = ' + RMS_EPS,
         'A side branch, not an update: attention reads this normalized copy while the residual stream itself is carried through untouched, to be added back one step later.');
     } else if (stageKey === 'attn-only' && flow.is_moa && DATA.attention_routing) {
@@ -2265,13 +2400,17 @@ export function bootArchExplorer(
       // removed (2026-08-03) the two were folded into one sentence rather than stacked — both names
       // for the connection survive, neither idea is stated twice.
       title = 'Residual Add (post-attention) · all ' + numTokens + ' tokens · layer ' + (li + 1);
+      headerExtra = stageTitleBar('Residual (Post-attention)');
       html = '<div class="math-block"><h3>Add attention output back to the residual stream</h3>' +
         diagramRow([matBlock('residual (pre-norm input)', allDims, gridHTML(beforeAll, 5)), opSpan('+'), matBlock('attention output', allDims, gridHTML(lf.attn_output, 5)), opSpan('='), matBlock('sum', allDims, gridHTML(lf.after_attn_residual, 5))]) +
         '<p class="math-hint" style="margin:8px 0 0">One row per token, added position by position: no row affects any other. This is the skip connection, and the reason it is called a "residual" one: attention adds onto the stream it read instead of replacing it, so information from earlier layers is never fully discarded.</p></div>';
     } else if (stageKey === 'ln2') {
-      title = 'RMSNorm (pre-' + (DATA.layers[li].tokens ? 'MoE' : 'FFN') + ') · all ' + numTokens + ' tokens · layer ' + (li + 1);
-      // `tail` names what reads this norm's output; dense discrimination is `!layer.tokens`, never
-      // `is_dense` — the same rule the title above uses.
+      // One `const` for both the title and the header title, so the two can't drift apart on a
+      // dense layer. Dense discrimination is `!layer.tokens`, never `is_dense`.
+      const feedName = DATA.layers[li].tokens ? 'MoE' : 'FFN';
+      title = 'RMSNorm (pre-' + feedName + ') · all ' + numTokens + ' tokens · layer ' + (li + 1);
+      headerExtra = stageTitleBar('RMSNorm (Pre-' + feedName + ')');
+      // `tail` names what reads this norm's output.
       html = rmsBlock('RMSNorm', lf.after_attn_residual, lf.ln2_weight, lf.ln2_out, 'ε = ' + RMS_EPS,
         'A side branch too, with its own learned γ separate from the pre-attention norm\'s: this is what the ' + (DATA.layers[li].tokens ? 'MoE block and its router' : 'feed-forward block') + ' reads, while the residual stream is carried forward untouched.');
     } else if (stageKey === 'moe-combine-all') {
@@ -2282,9 +2421,18 @@ export function bootArchExplorer(
           '<p class="math-hint" style="margin:0">Layer ' + (li + 1) + ' is dense, there is no router and no per-expert weighted sum. Every token runs through one shared feed-forward network. Switch to any later layer to see the MoE combined output.</p></div>';
         // Used to commit to the DOM and return early — the one branch that was a second writer to
         // #math-content. It returns the payload like every other branch now.
-        return { title, headerExtra, html };
+        // Wrapped like the shared return below: there is no diagram here, so the reveal finds no
+        // `[data-diagram]` and simply unarms — but the root must still be present, or the modal
+        // would be the one stage whose arming rules never apply.
+        return { title, headerExtra, html: stagedRoot(html) };
       }
       html = '<p class="math-hint" style="margin:0 0 10px">For every input token: the router\'s real top-' + DATA.top_k_experts + ' experts and their real softmax weights, then Σ (weight × expert_out), the actual weighted sum that becomes this layer\'s real MoE output for that token.' + (DATA.shared_experts ? ' The ' + DATA.shared_experts + ' always-on shared experts (merged into one feed-forward) are then added in gate-free, shown as “+ shared”.' : '') + '</p>';
+      // The one stage that is a LIST rather than an equation, so it gets its own container and the
+      // `data-sweep` mode: the beat is a whole token row cascading top to bottom, not the colour
+      // strip inside it (four of each row's five children are text, and revealing only the strip
+      // would leave the panel four-fifths visible at frame 0). Per-row beats would also mean up to
+      // 17 of them. See `playStageReveal` and the `[data-sweep]` rules in moe.css.
+      html += '<div data-diagram data-sweep="1">';
       tokens.forEach((t, tIdx) => {
         const ttAll = DATA.layers[li].tokens[tIdx];
         const orderedAll = ttAll.top_experts.map((e: number, k: number) => ({ e, w: ttAll.top_weights[k] })).sort((a: any, b: any) => b.w - a.w);
@@ -2298,6 +2446,7 @@ export function bootArchExplorer(
           '<div style="font-size:10px;color:var(--text-muted);flex:0 0 auto;">(1,' + H + ')</div>' +
           '</div>';
       });
+      html += '</div>';
     } else if (stageKey === 'dense-ffn') {
       // DeepSeek dense layer 1: one shared SwiGLU feed-forward, no router.
       const d = DATA.dense_ffn && DATA.dense_ffn[String(li)];
@@ -2347,8 +2496,11 @@ export function bootArchExplorer(
       html += '<div class="math-block"><h3>Combined MoE output (sum of all activated experts, weighted)</h3>' +
         diagramRow([matBlock('MoE layer output', '(1,' + H + ')', stripHTML(lf.moe_output[ti], 5))]) + '</div>';
     } else if (stageKey === 'add2') {
-      title = 'Residual Add (post-' + (DATA.layers[li].tokens ? 'MoE' : 'FFN') + ') · all ' + numTokens + ' tokens · layer ' + (li + 1);
-      const feedLabel = DATA.layers[li].tokens ? 'MoE output' : 'FFN output';
+      // Same one-const rule as 'ln2': the header title and the hidden title read the same source.
+      const feedName = DATA.layers[li].tokens ? 'MoE' : 'FFN';
+      title = 'Residual Add (post-' + feedName + ') · all ' + numTokens + ' tokens · layer ' + (li + 1);
+      headerExtra = stageTitleBar('Residual (Post-' + feedName + ')');
+      const feedLabel = feedName + ' output';
       // The hint used to end on a generic "the next layer"; the block's hover popover carried the
       // concrete destination and the last-layer case, so both moved in here when it was removed
       // (2026-08-03). `li` is safe to branch on: `buildFlowStage` binds it from `currentLayer` on
@@ -2367,16 +2519,23 @@ export function bootArchExplorer(
         '<p class="math-hint" style="margin:8px 0 0">' + (isLast
           ? 'This is the last layer: one more final RMSNorm, then × the (' + H + ', vocab_size) LM head matrix, gives the next-token logits shown in the Final Output block (top pick: ' + escapeHtml(DATA.next_token_candidates[0].token.trim()) + ' at ' + (DATA.next_token_candidates[0].prob * 100).toFixed(1) + '%).'
           : 'This becomes the residual input to layer ' + (li + 2) + '\'s RMSNorm, switch layer tabs further down to follow it forward.') + '</p></div>';
-    } else if (stageKey === 'final-output') {
+    } else if (stageKey === 'final-output' || stageKey === 'final-norm') {
+      // ONE stage, TWO keys, and the only thing that differs is which block opened it: the Final
+      // RMSNorm block sends 'final-norm', the Final Output block 'final-output'. Both read the same
+      // numbers (the real last layer's), so `title` and the body are shared — but a single header
+      // string would mislabel one of the two blocks, which is the whole reason the keys are split.
+      const fromNorm = stageKey === 'final-norm';
       const remaining = DATA.num_layers - 1 - li;
       title = 'Final Output: where these numbers come from';
-      // This is the ONE stage that kept its block's popover title (2026-08-03). The other four
-      // modals repeat theirs in the modal header; this header says "Final Output: where these
-      // numbers come from" and never names the norm at all. Phrased neutrally about which block was
-      // clicked, because the Final Output block opens this same stage.
+      headerExtra = stageTitleBar(fromNorm ? 'Final RMSNorm' : 'Final Output');
+      // The once-after-the-last-block fact is the Final RMSNorm block's, carried here since its
+      // hover popover was removed (2026-08-03). It leads in BOLD on the 'final-output' path, whose
+      // header names the output and never the norm — but not on the 'final-norm' path, where the
+      // header above now says "Final RMSNorm" and a bolded repeat would state the name twice.
       // The popover's closing "so the loop below runs N times" was cut: it pointed at the flow row's
       // loop-back arc, which nobody can see from inside the modal.
-      const finalNormNote = '<b>Final RMSNorm (once, after the last block)</b> — not part of any transformer block: the same RMSNorm rule, applied once after the last of the ' + DATA.num_layers + ' blocks rather than once per layer.';
+      const finalNormLead = 'Final RMSNorm (once, after the last block)';
+      const finalNormNote = (fromNorm ? finalNormLead : '<b>' + finalNormLead + '</b>') + ' — not part of any transformer block: the same RMSNorm rule, applied once after the last of the ' + DATA.num_layers + ' blocks rather than once per layer.';
       html = '<div class="math-block"><h3>' + (remaining > 0
         ? 'Not layer ' + (li + 1) + '\'s output, the real final layer\'s'
         : 'This is the real final layer\'s output') + '</h3>' +
@@ -2392,7 +2551,11 @@ export function bootArchExplorer(
         '</div>';
     }
 
-    return { title, headerExtra, html };
+    // Every branch but the two attention ones gets the staged-reveal root (see `stagedRoot`). The
+    // attention branches are excluded by their own key, which is sufficient: `attnPanel()` is
+    // emitted under `stageKey === 'attn-only'` and nowhere else, and those panels already ship
+    // `ATTN_PANEL_CLS` and are driven by `playAttnStep` off their `data-beat` tags.
+    return { title, headerExtra, html: stageKey === 'attn-only' ? html : stagedRoot(html) };
   }
 
   /** Opens a flow stage in the shared math modal. React owns the modal's open state and renders
@@ -2415,6 +2578,10 @@ export function bootArchExplorer(
     // Plays whichever step is visible: 'proj' for every opener that means "explain this block",
     // 'map' when the head ‹ › re-opened the modal (which sets the skip flag).
     playAttnStep();
+    // …and the same reveal for every other stage. The two are mutually exclusive in practice —
+    // each early-returns when its own panel/root is absent, and no stage emits both — so they can
+    // share `attnTl` without ever contending for it.
+    playStageReveal();
   }
 
   // ---- cleanup for React hosting: everything boot() registered outside its own DOM subtree ----
