@@ -15,6 +15,11 @@
  * kept as two names on purpose: this file's job is to produce byte-identical output, and unifying
  * them is the kind of tidy-up that invites an accidental format change. Their output is compared
  * character-for-character against the old builder on all three models before this is wired up.
+ *
+ * Two DELIBERATE divergences from that transcription since (2026-08-03), both copy-only:
+ *  - JetMoE's footer computes its active-parameter count instead of stating a flat `~2B`;
+ *  - OLMoE's "all N layers" line says what it sums (routed FFN experts) so it stops reading as a
+ *    second, contradictory model total next to the footer's ~6.9B.
  */
 import type { PromptFlow } from './types';
 
@@ -29,12 +34,18 @@ export function buildParamCountPanelHtml(DATA: PromptFlow): string {
     const sharedKV = 2 * H * H; // W_k + W_v are shared across all attention experts
     const perLayer = E * perExpert + aE * perAttnExpert + sharedKV;
     const allLayers = DATA.num_layers * perLayer;
+    // Active per token: the top-k experts on BOTH sides, plus the shared W_kv (it is not routed, so
+    // every token pays for it). Computed rather than hardcoded, exactly like `allLayers` above — the
+    // footer used to say a flat `~2B` next to a computed total, which would have drifted the moment
+    // any of these scalars changed. Lands at 2.26B, i.e. `2.3B` at one decimal.
+    const perLayerActive = K * perExpert + aK * perAttnExpert + sharedKV;
+    const allLayersActive = DATA.num_layers * perLayerActive;
     return '<h2 style="font-size:14px;font-weight:650;margin:0 0 10px;">Parameter count</h2>' +
       '<div class="math-eq">params/FFN expert <span class="op">=</span> 3 <span class="op">×</span> (' + H + ' <span class="op">×</span> ' + I + ') <span class="op">=</span> <span class="val">' + fmtN(perExpert) + '</span>\n' +
       'params/attn expert <span class="op">=</span> 2 <span class="op">×</span> (' + H + ' <span class="op">×</span> ' + H + ') <span class="op">=</span> <span class="val">' + fmtN(perAttnExpert) + '</span> <span class="op">(its own W_q + W_o)</span>\n' +
       'params/layer  <span class="op">=</span> ' + E + ' <span class="op">×</span> ' + fmtN(perExpert) + ' <span class="op">+</span> ' + aE + ' <span class="op">×</span> ' + fmtN(perAttnExpert) + ' <span class="op">+</span> shared W_kv <span class="op">=</span> <span class="val">' + fmtN(perLayer) + '</span>\n' +
       'all ' + DATA.num_layers + ' layers  <span class="op">=</span> <span class="val">≈ ' + (allLayers / 1e9).toFixed(2) + 'B params</span>, but only ' + aK + '/' + aE + ' attention experts and ' + K + '/' + E + ' FFN experts run per token</div>' +
-      '<footer class="note">JetMoE is sparse on <b>both</b> sides: only ' + aK + ' of ' + aE + ' attention experts and ' + K + ' of ' + E + ' feed-forward experts are actually multiplied for any given token, the rest sit idle in memory. That two-way sparsity is why JetMoE-8B has ~' + (allLayers / 1e9).toFixed(1) + 'B total parameters but only ~2B "active" per token.</footer>';
+      '<footer class="note">JetMoE is sparse on <b>both</b> sides: only ' + aK + ' of ' + aE + ' attention experts and ' + K + ' of ' + E + ' feed-forward experts are actually multiplied for any given token, the rest sit idle in memory. That two-way sparsity is why JetMoE-8B has ~' + (allLayers / 1e9).toFixed(1) + 'B total parameters but only ~' + (allLayersActive / 1e9).toFixed(1) + 'B "active" per token.</footer>';
   }
   // --- DeepSeek: 64 routed (top-6) + 2 always-on shared + a dense layer 1, 16.4B / ~2.8B active ---
   if (DATA.shared_experts) {
@@ -56,6 +67,17 @@ export function buildParamCountPanelHtml(DATA: PromptFlow): string {
   return '<h2 style="font-size:14px;font-weight:650;margin:0 0 10px;">Parameter count</h2>' +
     '<div class="math-eq">params/expert <span class="op">=</span> 3 <span class="op">×</span> (' + H0 + ' <span class="op">×</span> ' + I0 + ') <span class="op">=</span> <span class="val">' + fmt(perExpert) + '</span>\n' +
     'params/layer  <span class="op">=</span> ' + E0 + ' experts <span class="op">×</span> ' + fmt(perExpert) + ' <span class="op">=</span> <span class="val">' + fmt(perLayer) + '</span>\n' +
-    'all ' + DATA.num_layers + ' layers  <span class="op">=</span> <span class="val">≈ ' + (allLayers / 1e9).toFixed(2) + 'B params</span>, but only ' + K0 + '/' + E0 + ' experts run per token per layer</div>' +
+    // The sum is over routed FFN experts ONLY, so it must not be read as the model total: it lands
+    // at 6.44B while the footer (correctly) says ~6.9B, and an unqualified "all 16 layers = 6.44B"
+    // read as two different totals for the same model. Attention + embedding params are not in DATA,
+    // so the honest fix is to label what this number actually counts rather than to compute 6.9B.
+    // ⚠ The exclusion note is its OWN line, not a parenthetical on the one above. `.math-eq` is
+    // `white-space: pre; overflow-x: auto`, so a long line does not wrap — it grows an in-panel
+    // horizontal scrollbar. Inline, this line measured 949px intrinsic against the 890px available
+    // at a 1024px viewport, i.e. the reader had to scroll sideways to reach the sparsity clause.
+    // Split, the widest line is 715px (the note is shorter than it and costs nothing), which keeps
+    // the onset near 849px — well under the ~990px the rest of the tab already floors at.
+    'all ' + DATA.num_layers + ' layers of routed FFN experts  <span class="op">=</span> <span class="val">≈ ' + (allLayers / 1e9).toFixed(2) + 'B params</span>, but only ' + K0 + '/' + E0 + ' experts run per token per layer\n' +
+    '<span class="op">(this sum excludes attention + embedding parameters)</span></div>' +
     '<footer class="note">Only ' + K0 + ' of ' + E0 + ' experts\' weights are actually multiplied for any given token while the rest sit idle in memory. That sparsity is why OLMoE has ~6.9B total parameters but only ~1.3B "active" per token.</footer>';
 }
