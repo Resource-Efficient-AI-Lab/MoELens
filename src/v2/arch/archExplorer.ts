@@ -777,7 +777,6 @@ export function bootArchExplorer(
   }
 
   function cssVar(name: string) { return getComputedStyle(root).getPropertyValue(name).trim(); }
-  function eq(name: string, dim: string) { return '<span class="cell-name">' + name + '</span><span class="cell-dim">' + dim + '</span>'; }
 
   /** Flow connector: a straight arrow, drawn at 0.55 opacity by `.pdf-connector` in moe.css.
    *  DIVERGENCE from the prototype's `~` snake — with five blocks inside the card the row is
@@ -988,19 +987,26 @@ export function bootArchExplorer(
       : 'repeats ×' + DATA.num_layers + ' · layer ' + (currentLayer + 2) + ' re-enters here', 11, 600);
   }
 
+  /** The `.pdf-popover` hover card is GONE (2026-08-03) and must not come back — its explanation
+   *  sentence now lives in the block's math modal (`buildFlowStage`), where it sits under the
+   *  diagram that proves it instead of over a 4px thumbnail of the same grid. Two things went with
+   *  it, both deliberate: the `.pdf-hover-hint` pill (it and `.pdf-click-hint` are absolutely
+   *  positioned in the SAME box, so the four in-card blocks were rendering two hint pills on top of
+   *  each other — invisible only because the popover covered them at z-index 30), and `eq()`, whose
+   *  sole callers were the four popovers.
+   *  `.pdf-token-popover` is a different thing and stays: the Embedding block's per-token chips. */
   interface PdfBlockOpts {
-    title: string; accent: string; bg?: string; html?: string; popover?: string;
-    popoverTitle?: string; hoverHint?: string; clickHint?: string; onClick?: (ev: MouseEvent) => void; extraClass?: string;
+    title: string; accent: string; bg?: string; html?: string;
+    clickHint?: string; onClick?: (ev: MouseEvent) => void; extraClass?: string;
   }
-  function pdfBlock({ title, accent, bg, html, popover, popoverTitle, hoverHint, clickHint, onClick, extraClass }: PdfBlockOpts) {
+  function pdfBlock({ title, accent, bg, html, clickHint, onClick, extraClass }: PdfBlockOpts) {
     const div = document.createElement('div');
     div.className = 'pdf-block' + (extraClass ? ' ' + extraClass : '');
     div.style.setProperty('--block-accent', accent);
     if (bg) div.style.setProperty('--block-bg', bg);
     div.innerHTML = '<h4>' + title + '</h4>' + (html || '') +
-      (popover ? '<div class="pdf-hover-hint">' + (hoverHint || 'click to see ' + (popoverTitle || title)) + '</div><div class="pdf-popover"><h5>' + (popoverTitle || title) + '</h5>' + popover + '</div>' : '') +
       (clickHint ? '<div class="pdf-click-hint">' + clickHint + '</div>' : '');
-    if (onClick) div.addEventListener('click', (ev) => { if (!(ev.target as Element).closest('.pdf-popover, .pdf-token-popover')) onClick(ev); });
+    if (onClick) div.addEventListener('click', (ev) => { if (!(ev.target as Element).closest('.pdf-token-popover')) onClick(ev); });
     return div;
   }
 
@@ -1241,11 +1247,6 @@ export function bootArchExplorer(
     // feeds the MoA router as well as the attention experts) was not.
     blocks.push(pdfBlock({
       title: 'RMSNorm', accent: yellow, extraClass: 'thin',
-      popoverTitle: 'RMSNorm (pre-attention)',
-      popover: '<div class="dims">' +
-        '<div>' + eq('residual in', '(' + numTokens + ',' + H + ')') + ' <span class="op">÷ RMS ⊙ γ →</span> ' + eq('normalized stream', '(' + numTokens + ',' + H + ')') + '</div>' +
-        '<div class="foot-note">y = x / √(mean(x²)+ε) ⊙ γ. A side branch, not an update: attention reads this normalized copy while the residual stream itself is carried through untouched, to be added back one step later.</div></div>' +
-        '<div class="grid-wrap">' + gridHTML(lf.ln1_out, 4) + '</div>',
       clickHint: 'click for full RMSNorm math',
       onClick: () => { flowToken = focusT; openFlowStage('ln1'); },
     }));
@@ -1312,11 +1313,6 @@ export function bootArchExplorer(
     // post-MoE Residual), norms take yellow (matching the pre-attention RMSNorm).
     blocks.push(pdfBlock({
       title: 'Residual', accent: cssVar('--text-secondary'), extraClass: 'thin',
-      popoverTitle: 'Residual (post-attention)',
-      popover: '<div class="dims">' +
-        '<div>' + eq('residual in', '(' + numTokens + ',' + H + ')') + ' <span class="op">+</span> ' + eq('attn output', '(' + numTokens + ',' + H + ')') + ' <span class="op">=</span> ' + eq('sum', '(' + numTokens + ',' + H + ')') + '</div>' +
-        '<div class="foot-note">The skip connection: attention adds onto the stream it read instead of replacing it, which keeps earlier-layer information alive.</div></div>' +
-        '<div class="grid-wrap">' + gridHTML(lf.after_attn_residual, 4) + '</div>',
       clickHint: 'click for full residual math',
       onClick: () => { flowToken = focusT; openFlowStage('add1'); },
     }));
@@ -1325,11 +1321,6 @@ export function bootArchExplorer(
     // vector the MoE router scores (ln2_out), so it opens the MoE sub-block.
     blocks.push(pdfBlock({
       title: 'RMSNorm', accent: yellow, extraClass: 'thin',
-      popoverTitle: 'RMSNorm (pre-MoE)',
-      popover: '<div class="dims">' +
-        '<div>' + eq('sum', '(' + numTokens + ',' + H + ')') + ' <span class="op">÷ RMS ⊙ γ →</span> ' + eq('normalized stream', '(' + numTokens + ',' + H + ')') + '</div>' +
-        '<div class="foot-note">y = x / √(mean(x²)+ε) ⊙ γ, with its own learned γ. Another side branch: this is what the ' + (denseHere ? 'feed-forward block' : 'MoE block and its router') + ' reads, while the residual stream is carried forward untouched.</div></div>' +
-        '<div class="grid-wrap">' + gridHTML(lf.ln2_out, 4) + '</div>',
       clickHint: 'click for full RMSNorm math',
       onClick: () => { flowToken = focusT; openFlowStage('ln2'); },
     }));
@@ -1395,13 +1386,6 @@ export function bootArchExplorer(
     // 7. Residual (thin) — after MoE (out = h + m)
     blocks.push(pdfBlock({
       title: 'Residual', accent: cssVar('--text-secondary'), extraClass: 'thin',
-      popoverTitle: 'Residual (post-MoE)',
-      popover: '<div class="dims">' +
-        '<div>' + eq('post-attn residual', '(' + numTokens + ',' + H + ')') + ' <span class="op">+</span> ' + eq('MoE output', '(' + numTokens + ',' + H + ')') + ' <span class="op">=</span> ' + eq('layer output', '(' + numTokens + ',' + H + ')') + '</div>' +
-        '<div class="foot-note">' + (currentLayer === DATA.num_layers - 1
-          ? 'Last layer, feeds the final RMSNorm + LM head next.'
-          : 'Feeds layer ' + (currentLayer + 2) + '\'s RMSNorm as the new residual.') + '</div></div>' +
-        '<div class="grid-wrap">' + gridHTML(lf.layer_output, 4) + '</div>',
       clickHint: 'click for full residual math',
       onClick: () => { flowToken = focusT; openFlowStage('add2'); },
     }));
@@ -1590,8 +1574,14 @@ export function bootArchExplorer(
    *  the strip is exactly one grid row wide: that alignment is what shows the broadcast.
    *  The `→ ÷ RMS → ⊙` operator is a label, not a grid: the per-row RMS is one scalar per token, so
    *  there is nothing to draw, but without it the diagram claimed x ⊙ γ = normalized — false
-   *  arithmetic that contradicted the formula line right under it. */
-  function rmsBlock(title: string, before: number[][], weight: number[], after: number[][], note?: string) {
+   *  arithmetic that contradicted the formula line right under it.
+   *  `tail` is the per-stage sentence that used to live in the block's hover popover (removed
+   *  2026-08-03). It is appended INSIDE the hint paragraph rather than added as a second <p>: the
+   *  two norms differ only in what reads their output, so it belongs to the same thought, and a
+   *  free-standing paragraph read as a separate note about a separate thing. The popover's leading
+   *  `y = x / √(mean(x²)+ε) ⊙ γ` was dropped on the way in — the .math-eq line above already
+   *  prints that exact formula. */
+  function rmsBlock(title: string, before: number[][], weight: number[], after: number[][], note?: string, tail?: string) {
     const dims = '(' + before.length + ', ' + DATA.hidden_size + ')';
     // Each drawn cell averages a bucket of channels (2048 → 20 columns on all three models), so a
     // reader must be told cell-by-cell arithmetic cannot reproduce the equation.
@@ -1605,7 +1595,8 @@ export function bootArchExplorer(
         matBlock('normalized stream', dims, gridHTML(after, 5)),
       ]) +
       '<div class="math-eq wrap">y = x / sqrt(mean(x²) + ε) ⊙ γ' + (note ? ' &nbsp;<span class="op">— ' + note + '</span>' : '') + '</div>' +
-      '<p class="math-hint" style="margin:8px 0 0">One row per token. Each row is normalized by <b>its own</b> root-mean-square, taken over that row\'s ' + DATA.hidden_size + ' numbers alone, so tokens never mix here. <b>γ</b> is a single learned vector of ' + DATA.hidden_size + ' gains, the same one applied to every row. The grids and the γ strip are downsampled to fit: each cell is an average of ~' + chansPerCell + ' of the ' + DATA.hidden_size + ' channels, not a single number, so the formula holds for the real rows, not cell by cell on what is drawn.</p></div>';
+      '<p class="math-hint" style="margin:8px 0 0">One row per token. Each row is normalized by <b>its own</b> root-mean-square, taken over that row\'s ' + DATA.hidden_size + ' numbers alone, so tokens never mix here. <b>γ</b> is a single learned vector of ' + DATA.hidden_size + ' gains, the same one applied to every row. The grids and the γ strip are downsampled to fit: each cell is an average of ~' + chansPerCell + ' of the ' + DATA.hidden_size + ' channels, not a single number, so the formula holds for the real rows, not cell by cell on what is drawn.' +
+      (tail ? ' ' + tail : '') + '</p></div>';
   }
 
   /** Sub-tab + head-nav wiring, shared by both attention branches (it was duplicated verbatim in
@@ -1909,7 +1900,8 @@ export function bootArchExplorer(
       // Batched, so the title names the token count rather than a token — nothing here is scoped to
       // flowToken any more (same shape as 'moe-combine-all').
       title = 'RMSNorm (pre-attention) · all ' + numTokens + ' tokens · layer ' + (li + 1);
-      html = rmsBlock('RMSNorm', beforeAll, lf.ln1_weight, lf.ln1_out, 'ε = ' + RMS_EPS);
+      html = rmsBlock('RMSNorm', beforeAll, lf.ln1_weight, lf.ln1_out, 'ε = ' + RMS_EPS,
+        'A side branch, not an update: attention reads this normalized copy while the residual stream itself is carried through untouched, to be added back one step later.');
     } else if (stageKey === 'attn-only' && flow.is_moa && DATA.attention_routing) {
       // JetMoE MoA: attention router picked top-2 of 8 attention experts. Show the selected expert's
       // Q·Kᵀ→softmax→×V using its own W_q / W_o and the SHARED W_k / W_v. Same sub-tab / head-nav
@@ -2265,16 +2257,23 @@ export function bootArchExplorer(
         diagramRow([beat('cheads', matBlock(nh + ' heads × (' + numTokens + ',' + hd + ') concatenated', '(' + numTokens + ',' + H + ')', headStripHTML(lf.head_output_by_head, 7))), beat('cdot', opSpan('·')), beat('cwo', matBlock('W_o', '(' + H + ',' + H + ')', gridHTML(lf.o_weight, 5))), beat('ceq', opSpan('=')), beat('cout', matBlock('attention output', '(' + numTokens + ',' + H + ')', gridHTML(lf.attn_output, 4)))]) + '</div>', ATTN_PANEL_CLS);
       // Wiring + reveal moved to `mountStage` (see the MoA branch above).
     } else if (stageKey === 'add1') {
-      // Batched over all tokens, matching the flow-block popover and the RMSNorm / attention modals.
+      // Batched over all tokens, matching the RMSNorm / attention modals.
       // Unlike RMSNorm there is no broadcast here: both operands are (numTokens, H) and the add is
       // elementwise, so this diagram is the whole operation with nothing left undrawn.
+      // The hint below is a MERGE: the block's hover popover said the same thing in different words
+      // ("the skip connection … keeps earlier-layer information alive"), so when the popover was
+      // removed (2026-08-03) the two were folded into one sentence rather than stacked — both names
+      // for the connection survive, neither idea is stated twice.
       title = 'Residual Add (post-attention) · all ' + numTokens + ' tokens · layer ' + (li + 1);
       html = '<div class="math-block"><h3>Add attention output back to the residual stream</h3>' +
         diagramRow([matBlock('residual (pre-norm input)', allDims, gridHTML(beforeAll, 5)), opSpan('+'), matBlock('attention output', allDims, gridHTML(lf.attn_output, 5)), opSpan('='), matBlock('sum', allDims, gridHTML(lf.after_attn_residual, 5))]) +
-        '<p class="math-hint" style="margin:8px 0 0">One row per token, added position by position: no row affects any other. This is why it\'s called a "residual" connection: the attention block\'s output is added onto its own input rather than replacing it, so information from earlier layers is never fully discarded.</p></div>';
+        '<p class="math-hint" style="margin:8px 0 0">One row per token, added position by position: no row affects any other. This is the skip connection, and the reason it is called a "residual" one: attention adds onto the stream it read instead of replacing it, so information from earlier layers is never fully discarded.</p></div>';
     } else if (stageKey === 'ln2') {
       title = 'RMSNorm (pre-' + (DATA.layers[li].tokens ? 'MoE' : 'FFN') + ') · all ' + numTokens + ' tokens · layer ' + (li + 1);
-      html = rmsBlock('RMSNorm', lf.after_attn_residual, lf.ln2_weight, lf.ln2_out, 'ε = ' + RMS_EPS);
+      // `tail` names what reads this norm's output; dense discrimination is `!layer.tokens`, never
+      // `is_dense` — the same rule the title above uses.
+      html = rmsBlock('RMSNorm', lf.after_attn_residual, lf.ln2_weight, lf.ln2_out, 'ε = ' + RMS_EPS,
+        'A side branch too, with its own learned γ separate from the pre-attention norm\'s: this is what the ' + (DATA.layers[li].tokens ? 'MoE block and its router' : 'feed-forward block') + ' reads, while the residual stream is carried forward untouched.');
     } else if (stageKey === 'moe-combine-all') {
       title = 'Combined Weighted Output · all ' + numTokens + ' tokens · layer ' + (li + 1);
       if (!DATA.layers[li].tokens) {
@@ -2350,9 +2349,16 @@ export function bootArchExplorer(
     } else if (stageKey === 'add2') {
       title = 'Residual Add (post-' + (DATA.layers[li].tokens ? 'MoE' : 'FFN') + ') · all ' + numTokens + ' tokens · layer ' + (li + 1);
       const feedLabel = DATA.layers[li].tokens ? 'MoE output' : 'FFN output';
+      // The hint used to end on a generic "the next layer"; the block's hover popover carried the
+      // concrete destination and the last-layer case, so both moved in here when it was removed
+      // (2026-08-03). `li` is safe to branch on: `buildFlowStage` binds it from `currentLayer` on
+      // every build, so it tracks the Router pager and ▶ Step-through as well as a block click.
+      const lastLayer = li === DATA.num_layers - 1;
       html = '<div class="math-block"><h3>Add ' + feedLabel + ' back to the residual stream</h3>' +
         diagramRow([matBlock('residual (post-attention)', allDims, gridHTML(lf.after_attn_residual, 5)), opSpan('+'), matBlock(feedLabel, allDims, gridHTML(lf.moe_output, 5)), opSpan('='), matBlock('layer output', allDims, gridHTML(lf.layer_output, 5))]) +
-        '<p class="math-hint" style="margin:8px 0 0">One row per token, added position by position. This sum is the layer\'s output, and it is what the next layer reads as its residual stream.</p></div>';
+        '<p class="math-hint" style="margin:8px 0 0">One row per token, added position by position. This sum is the layer\'s output, and ' + (lastLayer
+          ? 'this is the last layer: the final RMSNorm and the LM head come next.'
+          : 'it is what layer ' + (li + 2) + ' reads as its residual stream.') + '</p></div>';
     } else if (stageKey === 'output') {
       title = '"' + tokenText + '" · Layer Output · layer ' + (li + 1);
       const isLast = li === DATA.num_layers - 1;
@@ -2364,6 +2370,13 @@ export function bootArchExplorer(
     } else if (stageKey === 'final-output') {
       const remaining = DATA.num_layers - 1 - li;
       title = 'Final Output: where these numbers come from';
+      // This is the ONE stage that kept its block's popover title (2026-08-03). The other four
+      // modals repeat theirs in the modal header; this header says "Final Output: where these
+      // numbers come from" and never names the norm at all. Phrased neutrally about which block was
+      // clicked, because the Final Output block opens this same stage.
+      // The popover's closing "so the loop below runs N times" was cut: it pointed at the flow row's
+      // loop-back arc, which nobody can see from inside the modal.
+      const finalNormNote = '<b>Final RMSNorm (once, after the last block)</b> — not part of any transformer block: the same RMSNorm rule, applied once after the last of the ' + DATA.num_layers + ' blocks rather than once per layer.';
       html = '<div class="math-block"><h3>' + (remaining > 0
         ? 'Not layer ' + (li + 1) + '\'s output, the real final layer\'s'
         : 'This is the real final layer\'s output') + '</h3>' +
@@ -2371,7 +2384,10 @@ export function bootArchExplorer(
           ? 'You\'re currently viewing layer ' + (li + 1) + ' of ' + DATA.num_layers + '. There ' +
           (remaining === 1 ? 'is 1 more decoder layer' : 'are ' + remaining + ' more decoder layers') +
           ' (layer ' + (li + 2) + ' through layer ' + DATA.num_layers + ') before the residual stream actually reaches the point where these numbers are computed. This panel always shows the model\'s real layer-' + DATA.num_layers + ' prediction, not layer ' + (li + 1) + '\'s own local output, so you can compare each layer\'s internal state against where the model actually ends up.'
-          : 'You\'re on the last decoder layer (' + DATA.num_layers + ' of ' + DATA.num_layers + '), so this is exactly where these numbers are produced: one final RMSNorm on this layer\'s output, then × the (' + H + ', vocab_size) LM head matrix, gives these real next-token logits.') + '</p>' +
+          // The once-not-per-layer fact now rides in `finalNormNote`, so this branch's own mention
+          // of the final norm is trimmed back to naming the step.
+          : 'You\'re on the last decoder layer (' + DATA.num_layers + ' of ' + DATA.num_layers + '), so this is exactly where these numbers are produced: one final RMSNorm, then × the (' + H + ', vocab_size) LM head matrix, gives these real next-token logits.') + '</p>' +
+        '<p class="math-hint" style="margin:8px 0 0">' + finalNormNote + '</p>' +
         '<div class="dims" style="margin-top:8px">real top pick: <b style="color:var(--text-primary)">' + escapeHtml(DATA.next_token_candidates[0].token.trim()) + '</b> at ' + (DATA.next_token_candidates[0].prob * 100).toFixed(1) + '%</div>' +
         '</div>';
     }

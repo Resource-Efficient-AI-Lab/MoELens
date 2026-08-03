@@ -52,10 +52,11 @@ function FlowBlock({ content, html, onClick }: {
     <div
       className={'pdf-block ' + content.extraClass}
       style={{ '--block-accent': content.accent } as CSSProperties}
-      // The same guard `pdfBlock()` wrapped every onClick in: a click inside an open popover is a
-      // read, not a request to open the math modal.
+      // The same guard `pdfBlock()` wrapped every onClick in: a click inside an open token popover
+      // is a read, not a request to open the math modal. (The block-level `.pdf-popover` this also
+      // used to name was removed on 2026-08-03; the chip popover is the only one left.)
       onClick={onClick && ((ev) => {
-        if (!(ev.target as Element).closest('.pdf-popover, .pdf-token-popover')) onClick(ev);
+        if (!(ev.target as Element).closest('.pdf-token-popover')) onClick(ev);
       })}
       dangerouslySetInnerHTML={html}
     />

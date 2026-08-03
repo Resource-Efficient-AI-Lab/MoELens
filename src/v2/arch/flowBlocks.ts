@@ -28,10 +28,6 @@ export interface FlowBlockContent {
   accent: string;
   extraClass: string;
   html: string;
-  /** Hover popover, if the block has one (Final RMSNorm does). */
-  popoverTitle?: string;
-  popover?: string;
-  hoverHint?: string;
   clickHint?: string;
 }
 
@@ -82,18 +78,16 @@ export function buildOuterFlowBlocks(DATA: PromptFlow, root: HTMLElement): Outer
     // block: it runs once on the last layer's output, before the LM head. It therefore sits
     // OUTSIDE the card, between the stage and Final Output.
     // The proposal gated it to the last layer (it is only reached there). Shown on every layer
-    // instead, by request — so the "not per-layer" fact has to be carried by its popover, which
-    // opens by saying it is not part of this layer, and by its tour-card title. Its own <h4> is
-    // the bare "RMSNorm" (matching the two in-card norms) as of 2026-07-31, by request: sitting
-    // outside the card, after the loop-back, is what marks it as the odd one out.
+    // instead, by request — so the "not per-layer" fact has to be carried elsewhere. Two paths
+    // carry it, and neither was ever the hover popover: `finalNormText()` in narration.ts opens the
+    // tour card with it, and (since the popover was removed on 2026-08-03) so does the
+    // `final-output` math stage — the one stage that kept its block's popover TITLE as a bolded
+    // lead, because the modal header there never names the norm. Its own <h4> is the bare "RMSNorm"
+    // (matching the two in-card norms) as of 2026-07-31, by request: sitting outside the card,
+    // after the loop-back, is what marks it as the odd one out.
     finalNorm: {
       title: 'RMSNorm', accent: yellow, extraClass: 'thin final-norm',
       html: '',
-      popoverTitle: 'Final RMSNorm (once, after the last block)',
-      popover: '<div class="dims">' +
-        '<div>' + eq('layer ' + DATA.num_layers + ' output', '(' + numTokens + ',' + H + ')') + ' <span class="op">÷ RMS ⊙ γ →</span> ' + eq('normalized stream', '(' + numTokens + ',' + H + ')') + '</div>' +
-        '<div class="foot-note">Not part of this transformer block. The same RMSNorm rule, applied <b>once</b> after the last of the ' + DATA.num_layers + ' blocks and before the LM head projection, so the loop below runs ' + DATA.num_layers + ' times and only then reaches this step.</div></div>',
-      hoverHint: 'click to see where the final numbers come from',
       clickHint: 'click to see where the final numbers come from',
     },
     finalOutput: {
@@ -111,6 +105,5 @@ export function buildOuterFlowBlocks(DATA: PromptFlow, root: HTMLElement): Outer
  *  and the two-custom-property cases) before any of this was written. */
 export function flowBlockInnerHtml(b: FlowBlockContent): string {
   return '<h4>' + b.title + '</h4>' + (b.html || '') +
-    (b.popover ? '<div class="pdf-hover-hint">' + (b.hoverHint || 'click to see ' + (b.popoverTitle || b.title)) + '</div><div class="pdf-popover"><h5>' + (b.popoverTitle || b.title) + '</h5>' + b.popover + '</div>' : '') +
     (b.clickHint ? '<div class="pdf-click-hint">' + b.clickHint + '</div>' : '');
 }
