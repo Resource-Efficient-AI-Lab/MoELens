@@ -1214,7 +1214,18 @@ export function bootArchExplorer(
     const denseHere = !DATA.layers[currentLayer].tokens;
     // Keep the in-flow attention heatmap width-bounded so longer prompts don't push the row
     // into horizontal scroll — shrink cells for prompts with more tokens, capped at 20px.
-    const attnCellPx = Math.max(12, Math.min(20, Math.floor(280 / numTokens)));
+    // Then snap DOWN to a cell size `gridGap` (mathDiagram.ts) can give a device-px-exact pitch,
+    // i.e. `cellPx ≡ 2 (mod 4)`. This grid is the one the reader sees WITHOUT opening anything, so
+    // it wants the uniform tiles and solid dividers at least as much as the math modals do. Down,
+    // never up: `(raw − 2)` caps the new pitch at one px per column above the old one (raw 20 → 18,
+    // pitch 20 vs 21; 18 → 18, 20 vs 19; 16 → 14, 16 vs 17; 12 → 10, 12 vs 13), so the worst case in
+    // the corpus is +14px on DeepSeek's 15-token prompt. Measured, and it does not move the block:
+    // `.moe-combo` here is sized by its "rows = query token, cols = key token · hatched = masked
+    // (causal)" caption (330px) with the widest grid at 300px, so the card row's min-content floor
+    // (~1009–1025px, see CLAUDE.md) never sees this change. Do NOT relax it to snap upward — 22px
+    // cells would put a 14-token grid at 336px and the caption would stop being the binding width.
+    const attnCellRaw = Math.max(12, Math.min(20, Math.floor(280 / numTokens)));
+    const attnCellPx = Math.max(10, Math.floor((attnCellRaw - 2) / 4) * 4 + 2);
 
     /** The SIX in-card blocks, in row order: RMSNorm → Attention → Residual → RMSNorm → MoE →
      *  Residual. These are row indices 1…6; blocks 0, 7 and 8 are React's (flowBlocks.ts), which is

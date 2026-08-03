@@ -76,12 +76,34 @@ export function expertStripWithNumbers(hue: string | Ramp, allProbs: number[], t
   return html;
 }
 
+// ---- cell pitch and fractional device pixel ratios -----------------------------------------
+/** The gap between grid cells, derived from `cellPx` rather than fixed at 1 — same failure the long
+ *  note above `expertStripWithNumbers` describes for the strip, and the same cure. Cell + gap is a
+ *  PITCH, and the pitch is what the compositor snaps. Every cell in these grids is declared at an
+ *  identical `cellPx`, but at a 1px gap the 22px grids came out at pitch 23 → 28.75 device px on
+ *  Windows at 125% display scaling (DPR 1.25, the common case) and the 10px grids at pitch 11 →
+ *  13.75. Neither is an integer, so the fraction accumulates across the row and Chrome paints
+ *  29/29/29/28 device px in a repeating pattern. Two visible symptoms, both reported on the
+ *  Attention `map` step (mask M, both attention maps, V head, head output): one cell in four reads
+ *  visibly fatter than its neighbours, and the 1.25-device-px dividers antialias into the fill they
+ *  separate, so two near-equal neighbours merge and the pair reads as one double-width tile.
+ *
+ *  A pitch is device-px-exact at BOTH common fractional ratios (1.25 and 1.5) exactly when it is a
+ *  multiple of 4. Only the gap moves, never `cellPx`: `buildMaskGridHTML` sizes its "0" glyph off
+ *  `cellPx * 0.42`, so reaching pitch 24 by growing the cell would move the digits as well as the
+ *  dividers. That bounds the gap to 1 or 2, which covers `cellPx % 4` of 3 (7 → 8) and 2 (22 → 24,
+ *  10 → 12, 6 → 8). The remaining cases, 4 and 5, would need a 4px or 3px gap — more gap than cell —
+ *  so they keep 1 and keep today's behaviour; they are the dense weight-matrix textures where no
+ *  single cell is legible as a tile in the first place, which is why the drift never read as a
+ *  defect there. Never special-case one builder's gap: `attnMapGrid`'s shared middle column stays
+ *  aligned cell-for-cell only while the mask grid and the attention map grid share a pitch. */
+function gridGap(cellPx: number) { return (cellPx + 2) % 4 === 0 ? 2 : 1; }
 export function buildGridHTML(ramp: Ramp, grid: number[][], cellPx: number) {
   const cols = grid[0].length;
   const total = grid.length * cols;
   let maxAbs = 1e-9;
   grid.forEach((row) => row.forEach((v) => { if (Math.abs(v) > maxAbs) maxAbs = Math.abs(v); }));
-  let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + cols + ',' + cellPx + 'px);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
+  let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + cols + ',' + cellPx + 'px);gap:' + gridGap(cellPx) + 'px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
   let idx = 0;
   grid.forEach((row) => row.forEach((v) => {
     html += '<div class="mm-cell" style="width:' + cellPx + 'px;height:' + cellPx + 'px;background:' + ramp(Math.sqrt(Math.abs(v) / maxAbs)) + ';animation-delay:' + mmDelay(idx++, total) + 'ms;"></div>';
@@ -111,7 +133,7 @@ export function buildAttnGridHTML(ramp: Ramp, tokLabel: TokLabel, grid: number[]
   const total = grid.length * cols;
   let maxAbs = 1e-9;
   grid.forEach((row) => row.forEach((v) => { if (Math.abs(v) > maxAbs) maxAbs = Math.abs(v); }));
-  let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + cols + ',' + cellPx + 'px);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
+  let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + cols + ',' + cellPx + 'px);gap:' + gridGap(cellPx) + 'px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
   let idx = 0;
   grid.forEach((row, r) => row.forEach((v, c) => {
     const masked = c > r;
@@ -127,7 +149,7 @@ export function buildAttnGridHTML(ramp: Ramp, tokLabel: TokLabel, grid: number[]
 // The mask M itself: 0 where the key is at or before the query, −∞ above the diagonal. Built from
 // the token count, not read from data — M is a fixed structural matrix, not a measurement.
 export function buildMaskGridHTML(tokLabel: TokLabel, n: number, cellPx: number) {
-  let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + n + ',' + cellPx + 'px);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
+  let html = '<div style="display:inline-grid;grid-template-columns:repeat(' + n + ',' + cellPx + 'px);gap:' + gridGap(cellPx) + 'px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden;">';
   let idx = 0;
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
