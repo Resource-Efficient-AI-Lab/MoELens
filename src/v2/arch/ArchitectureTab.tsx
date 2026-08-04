@@ -297,11 +297,14 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
 
   // Escape closes whichever modal is open (document-level in the prototype's bootstrap). The math
   // half is React state now; the Router modal stays an imperative class toggle for the moment.
+  // ⚠ The Router half goes through the island's `closeRouterModal`, NOT a `classList.remove` here.
+  // Stripping the class directly skips `stopPlay()`, and ▶ Step through layers now auto-starts when
+  // the modal opens — so Escape would dismiss the modal and leave it cycling layers underneath.
   useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') {
         closeMathModal();
-        document.getElementById('moe-grid-backdrop')?.classList.remove('open');
+        archApiRef.current?.closeRouterModal();
       }
     };
     document.addEventListener('keydown', onKeyDown);

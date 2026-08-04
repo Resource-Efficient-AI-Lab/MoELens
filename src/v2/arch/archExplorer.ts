@@ -100,6 +100,11 @@ export interface ArchExplorerApi {
    *  chips aside, which stay delegated on pdfRow) reach the same builders through here, so a
    *  React-owned block and an island-owned one open the modal by exactly one code path. */
   openStage: (stageKey: string) => void;
+  /** Closes the Router modal through the island's own close path. React's Escape handler used to
+   *  strip the backdrop's `open` class itself, which skipped `stopPlay()` — harmless while ▶ Step
+   *  through layers was opt-in, but it now auto-starts on open, so Escape would have left it
+   *  cycling layers behind a dismissed modal. Every close path has to funnel through here. */
+  closeRouterModal: () => void;
 }
 
 export function bootArchExplorer(
@@ -267,14 +272,18 @@ export function bootArchExplorer(
 
   let playTimer: ReturnType<typeof setInterval> | null = null;
   function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; playBtn.textContent = '▶ Step through layers'; } }
-  playBtn.onclick = () => {
-    if (playTimer) { stopPlay(); return; }
+  /** Idempotent, because the Router modal's open handler calls it too — reopening a modal that was
+   *  never stopped must not stack a second interval. */
+  function startPlay() {
+    if (playTimer) return;
     playBtn.textContent = '⏸ Stop';
     // 3.5s a layer, not the prototype's 1.4s: each step fires the full routing animation (~1.4s of
     // traveling dots on the All-tokens grid) plus the per-token fan's beats, so the reader needs
-    // the rest of the dwell to actually read the layer before it moves on.
+    // the rest of the dwell to actually read the layer before it moves on. It also clears the
+    // per-token ladder's 2.02s run, so the opening layer's beats always finish before the step.
     playTimer = setInterval(() => setLayer((currentLayer + 1) % DATA.num_layers), 3500);
-  };
+  }
+  playBtn.onclick = () => { if (playTimer) stopPlay(); else startPlay(); };
 
   // ---- tooltip ----
   function showTip(html: string, x: number, y: number) {
@@ -1521,6 +1530,10 @@ export function bootArchExplorer(
         moeGridBackdrop.classList.add('open');
         fitGridModalHeight(routerTab);
         animateRouting();
+        // Opening also starts ▶ Step through layers (2026-08-04, by request). It runs until the
+        // reader hits ⏸ Stop or closes the modal — every close path funnels through closeMoeGrid,
+        // which stops it.
+        startPlay();
       });
     }
     // DeepSeek: dense-layer FFN math + always-on shared-expert math (both open the shared math modal).
@@ -2660,5 +2673,6 @@ export function bootArchExplorer(
     hideTip: () => hideTip(),
     highlightTourBlock: (step: number | null) => { tourHighlight = step; applyTourHighlight(); },
     openStage: (stageKey: string) => openFlowStage(stageKey),
+    closeRouterModal: () => closeMoeGrid(),
   };
 }
