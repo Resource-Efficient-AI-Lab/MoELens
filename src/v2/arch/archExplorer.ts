@@ -27,10 +27,10 @@ import gsap from 'gsap';
 import type { PromptFlow } from './types';
 import { sequentialBlue, tokenColorAt, tokenRampColor } from './colorRamps';
 import {
-  ATTN_STEPS_MHA, ATTN_STEPS_MOA, MASK_LEGEND, TRANSPOSE_NOTE,
+  ATTN_STEPS_MHA, ATTN_STEPS_MOA, TRANSPOSE_NOTE,
   attnMapGrid, attnPanel, attnSubTabBar, beat, buildAttnGridHTML, buildGridHTML,
   buildHeadStripHTML, buildMaskGridHTML, buildStripHTML, diagramGrid, diagramRow, dotPhrase,
-  escapeHtml, expertStripWithNumbers, matBlock, opSpan, padGridRows, resultBlock,
+  escapeHtml, expertStripWithNumbers, fitCellPx, mapFootnote, matBlock, opSpan, padGridRows, resultBlock,
   stageTitleBar, stagedCls, stagedRoot, wDims,
 } from './mathDiagram';
 
@@ -2076,6 +2076,21 @@ export function bootArchExplorer(
         // (16 kv heads × 128 = 2048 = H) but that is a config coincidence, not an identity.
         const nkvH = flow.num_kv_heads ?? nh;
         const showRawMoa = !!(aef.q_raw && lf.k_raw && lf.v_raw);
+        // Adaptive cell sizes so the proj and map steps fit the 92vh modal without a body
+        // scrollbar (2026-08-03, by request). One const per family, because the mask grid and both
+        // attention maps must share a pitch (attnMapGrid's aligned middle column), and the head
+        // slices should look identical wherever they appear. Budgets are viewport-derived at build
+        // time (the modal does not rebuild on window resize — reopening re-measures): attnBody is
+        // the body's height inside the 92vh cap (header ≈65px); per-grid budgets subtract each
+        // step's measured fixed chrome (map ≈420px: intro hint, h3, eq, hints, legend, head nav,
+        // block titles/dims, body padding — ≈385px measured; proj ≈220px fixed + ≈50px block chrome per row across
+        // 3 rows — both re-measured 2026-08-03 after the intro hint and the map footnote each
+        // collapsed to one line). On a ~1100px-tall window nothing shrinks (22px maps, 10px
+        // heads); at ~730px the maps land at 10px and the head slices at the 6px floor — chosen
+        // over restructuring the two-row map layout, by request.
+        const attnBody = Math.round(window.innerHeight * 0.92) - 65;
+        const mapCell = fitCellPx(numTokens, Math.floor((attnBody - 385) / 2), 22);
+        const headCell = fitCellPx(numTokens, Math.floor((attnBody - 220) / 3) - 50, 10);
         // `beat(...)` tags each cell for the reveal timeline (playAttnStep). On the
         // fallback path there is no `=`/raw pair, so that beat is simply absent and the timeline
         // closes up — the tags name elements, not columns.
@@ -2089,20 +2104,21 @@ export function bootArchExplorer(
         const moaProjGrid = padGridRows([
           [beat('stream', matBlock('normalized stream', '(' + numTokens + ',' + H + ')', gridHTML(lf.ln1_out, 4))), beat('mul', opSpan('·')), beat('wmat', matBlock('W_q (expert ' + (E + 1) + ')', '(' + H + ',' + H + ')', gridHTML(aew.q, 5)))]
             .concat(rawSplit('Q raw (expert ' + (E + 1) + ')', aef.q_raw, nh * hd))
-            .concat([beat('head', matBlock('Q head ' + (flowHead + 1) + ' (pre-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(aef.q_by_head_prerope[flowHead], 10))), beat('rope', opSpan('rotate (RoPE) →')), beat('headpost', matBlock('Q head ' + (flowHead + 1) + ' (post-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(aef.q_by_head[flowHead], 10)))]),
+            .concat([beat('head', matBlock('Q head ' + (flowHead + 1) + ' (pre-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(aef.q_by_head_prerope[flowHead], headCell))), beat('rope', opSpan('rotate (RoPE) →')), beat('headpost', matBlock('Q head ' + (flowHead + 1) + ' (post-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(aef.q_by_head[flowHead], headCell)))]),
           [beat('stream', matBlock('normalized stream', '(' + numTokens + ',' + H + ')', gridHTML(lf.ln1_out, 4))), beat('mul', opSpan('·')), beat('wmat', matBlock('W_k (shared)', '(' + H + ',' + H + ')', gridHTML(lf.k_weight, 5)))]
             .concat(rawSplit('K raw (shared)', lf.k_raw, nkvH * hd))
-            .concat([beat('head', matBlock('K head ' + (flowHead + 1) + ' (pre-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head_prerope[flowHead], 10))), beat('rope', opSpan('rotate (RoPE) →')), beat('headpost', matBlock('K head ' + (flowHead + 1) + ' (post-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], 10)))]),
+            .concat([beat('head', matBlock('K head ' + (flowHead + 1) + ' (pre-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head_prerope[flowHead], headCell))), beat('rope', opSpan('rotate (RoPE) →')), beat('headpost', matBlock('K head ' + (flowHead + 1) + ' (post-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], headCell)))]),
           [beat('stream', matBlock('normalized stream', '(' + numTokens + ',' + H + ')', gridHTML(lf.ln1_out, 4))), beat('mul', opSpan('·')), beat('wmat', matBlock('W_v (shared)', '(' + H + ',' + H + ')', gridHTML(lf.v_weight, 5)))]
             .concat(rawSplit('V raw (shared)', lf.v_raw, nkvH * hd))
-            .concat([beat('head', matBlock('V head ' + (flowHead + 1), '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], 10)))]),
+            .concat([beat('head', matBlock('V head ' + (flowHead + 1), '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], headCell)))]),
         ]);
         html += attnPanel('proj', aTab,
           '<div class="math-block"><h3>1. Project to Q / K / V: expert ' + (E + 1) + '\'s own W_q, shared W_k / W_v, split into ' + nh + ' query heads / ' + nkvH + ' shared K/V heads of ' + hd + ' dims, then RoPE</h3>' +
-          diagramGrid(moaProjGrid.rows, moaProjGrid.cols, { colGap: 10, rowGap: 18, center: true }) +
-          '<div class="math-eq wrap">' +
+          diagramGrid(moaProjGrid.rows, moaProjGrid.cols, { colGap: 10, rowGap: headCell === 6 ? 12 : 18, center: true }) +
+          // Prose, not an equation — same `.math-hint` restyle as the MHA branch's explainer below.
+          '<p class="math-hint" style="margin:8px 0 0">' +
           (showRawMoa ? 'Each projection lands at its full width first (that is what “Q raw” / “K raw” / “V raw” are above), and only then is it reshaped into heads of ' + hd + ' dims. ' : '') +
-          'Only <b>W_q</b> (and W_o in step 4) belong to expert ' + (E + 1) + '; <b>W_k</b> and <b>W_v</b> are shared by all ' + ar.num_experts + ' attention experts, so K and V are computed once and reused. RoPE rotates Q and K only.</div></div>',
+          'Only <b>W_q</b> (and W_o in step 4) belong to expert ' + (E + 1) + '; <b>W_k</b> and <b>W_v</b> are shared by all ' + ar.num_experts + ' attention experts, so K and V are computed once and reused. RoPE rotates Q and K only.</p></div>',
           ATTN_PANEL_CLS);
 
         // ---- 2. Expert routing — the attention (MoA) router itself. Lived behind a "FFN router /
@@ -2187,18 +2203,17 @@ export function bootArchExplorer(
           // Beat tags: row A's map is `mmap`, row B's copy is `mmap2` — same matrix, revealed one
           // after the other (see `playAttnStep`). Everything else matches the MHA branch key for key.
           attnMapGrid(
-            [beat('mq', matBlock('Q head (expert ' + (E + 1) + ')', '(' + numTokens + ',' + hd + ')', gridHTML(aef.q_by_head[flowHead], 10))), beat('mdot1', opSpan('·', false, true)),
-              beat('mk', matBlock('K head (shared)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], 10))), beat('mscale', opSpan('ᵀ/√' + hd + ' +', false, true))],
-            beat('mmask', matBlock('mask M', '(' + numTokens + ',' + numTokens + ')', maskGridHTML(numTokens, 22))),
+            [beat('mq', matBlock('Q head (expert ' + (E + 1) + ')', '(' + numTokens + ',' + hd + ')', gridHTML(aef.q_by_head[flowHead], headCell))), beat('mdot1', opSpan('·', false, true)),
+              beat('mk', matBlock('K head (shared)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], headCell))), beat('mscale', opSpan('ᵀ/√' + hd + ' +', false, true))],
+            beat('mmask', matBlock('mask M', '(' + numTokens + ',' + numTokens + ')', maskGridHTML(numTokens, mapCell))),
             [beat('msoft', opSpan('→ softmax →', false, true)),
-              beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(aef.attn_probs_all_heads[flowHead], 22)))],
-            beat('mmap2', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(aef.attn_probs_all_heads[flowHead], 22))),
+              beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(aef.attn_probs_all_heads[flowHead], mapCell)))],
+            beat('mmap2', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(aef.attn_probs_all_heads[flowHead], mapCell))),
             [beat('mdot2', opSpan('·', false, true)),
-              beat('mv', matBlock('V head (shared)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], 10))), beat('meq', opSpan('=', false, true)),
-              beat('mout', matBlock('head output', '(' + numTokens + ',' + hd + ')', gridHTML(aef.head_output_by_head[flowHead], 10)))],
+              beat('mv', matBlock('V head (shared)', '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], headCell))), beat('meq', opSpan('=', false, true)),
+              beat('mout', matBlock('head output', '(' + numTokens + ',' + hd + ')', gridHTML(aef.head_output_by_head[flowHead], headCell)))],
           ) +
-          '<p class="math-hint" style="margin:8px 0 0">Rows = query token, columns = key token. The other selected attention expert runs its own version of this in parallel.</p>' +
-          MASK_LEGEND + '</div>', ATTN_PANEL_CLS);
+          mapFootnote('Rows = query token, columns = key token. The other selected attention expert runs its own version of this in parallel.') + '</div>', ATTN_PANEL_CLS);
         // ---- 4. Concatenate & project. Both selected experts get a row (2026-08-01, by request):
         // the output block is labelled "both experts", so showing one expert's lane above it left the
         // other half of that sum off-screen and the reader had to take the combine on faith. One row
@@ -2220,21 +2235,30 @@ export function bootArchExplorer(
         // Beat tags: the two lanes carry the SAME keys, so each beat tweens both at one timeline
         // position and the experts run in parallel (2026-08-01, by request) — while `cheads` is one
         // tagged block per lane holding 16 head grids, so inside a lane the heads land left to right.
-        const laneRow = (l: any) => diagramRow([
+        // NOT `diagramRow` (2026-08-03, by request): its `flex-wrap: wrap` let the `× weight` tail
+        // drop onto its own centred line whenever the lane outgrew the stack — which it always did
+        // at the 1240px modal cap once `→ combine →` + the output claimed their ~365px. This div is
+        // the same row with `flex-wrap: nowrap` and NO overflow-x, so what gives on a narrow modal
+        // is the head strip (headStripHTML wraps internally; a flex item's auto minimum is its
+        // min-content, one head), while `· W_o × weight` stays welded to the strip's right — the
+        // reading is `concat · W_o × weight`, and the weight must sit beside what it scales.
+        const laneRow = (l: any) => '<div data-diagram style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;justify-content:center;margin:8px 0 12px;">' + [
           // No "· steps 1 & 3" marker on the followed expert's lane (removed by request the same day
           // it was added): the two lanes are the same reading, and singling one out re-introduced the
           // "one of these is the real one" hierarchy the second lane exists to dissolve. The header
           // paragraph already names which expert steps 1 and 3 follow.
           beat('cheads', matBlock('expert ' + (l.o.e + 1) + '’s ' + nh + ' query heads × (' + numTokens + ',' + hd + ') concatenated',
-            // 6px, not the 7px the single-lane MHA concat uses: at 7 the lane measures 982px and the
-            // wrapper 1198px, so `→ combine →` plus the output block (265px) wrapped onto their own
-            // line and the output stopped sitting next to the combine. 6px takes 106px off the strip
-            // (16 heads × 7 downsampled columns) and the whole row fits with ~47px to spare.
-            '(' + numTokens + ',' + H + ')', headStripHTML(l.aef.head_output_by_head, 6))),
+            // 4px, not the 7px the single-lane MHA concat uses: the two-lane wrapper must also hold
+            // `→ combine →` + the output block (~365px), and per lane a `× weight` tail (~65px). At
+            // 6px the strip alone is ~940px, the lane ~1110px, and the tail wrapped under the lane
+            // at the 1240px modal cap; 4px puts the strip at ~620px and the whole lane + combine +
+            // output at ~1140px, inside the cap with ~55px to spare. (4px cells keep gridGap 1 and
+            // the old pitch drift — accepted for the same reason as the 4/5px weight textures.)
+            '(' + numTokens + ',' + H + ')', headStripHTML(l.aef.head_output_by_head, 4))),
           beat('cdot', opSpan('·')),
           beat('cwo', matBlock('W_o (expert ' + (l.o.e + 1) + ')', '(' + H + ',' + H + ')', gridHTML(l.aew.o, 5))),
           beat('cweight', opSpan('× ' + (l.o.w * 100).toFixed(1) + '%')),
-        ]);
+        ].join('') + '</div>';
         const concatDiagram = allLanes
           // `nowrap` on the wrapper, `min-width:0` on the lane stack: the combine and the output must
           // stay to the RIGHT of the stack at every width — that is the whole point of the layout —
@@ -2274,7 +2298,10 @@ export function bootArchExplorer(
       const nh = flow.num_attention_heads, hd = flow.head_dim;
       const aTab = ATTN_STEPS_MHA.some((s) => s.key === attnTab) ? attnTab : 'proj';
       headerExtra = attnSubTabBar(ATTN_STEPS_MHA, aTab);
-      html = '<p class="math-hint" style="margin:0 0 10px">Batched over all ' + numTokens + ' tokens at once, one row per input word (' + escapeHtml(rowLabels) + ') throughout. Head ' + (flowHead + 1) + ' of ' + nh + ' shown for the per-head steps (use ‹ › next to the attention dot grid to change head).</p>';
+      // Copy trimmed 2026-08-03, by request, so it holds one line at typical prompt lengths (the
+      // token list scales with the prompt, so very long prompts still wrap — that is the list's
+      // doing, not the fixed copy's).
+      html = '<p class="math-hint" style="margin:0 0 8px">Batched over all ' + numTokens + ' tokens at once, one row per input word (' + escapeHtml(rowLabels) + '). Head ' + (flowHead + 1) + ' of ' + nh + ' for the per-head steps (change with ‹ ›).</p>';
 
       // The projection's input is the pre-attention RMSNorm's output, not the token embeddings —
       // the row has shown that norm as its own block since 2026-07-28, so calling this "embeddings"
@@ -2294,7 +2321,13 @@ export function bootArchExplorer(
       // `hasQkNorm`, and with `||` so a trace carrying only one of the two never has a real block
       // silently dropped. When it is false nothing prints a `→norm→` on a model that does not norm.
       const normCols = showRaw && !!(lf.q_normed || lf.k_normed);
-      const projCells = (name: string, W: number[][], raw: number[][] | undefined, normed: number[][] | undefined, tail: string[]) => {
+      // Adaptive cell sizes — same pair, same viewport-derived budgets, and the same reasons as
+      // the MoA branch above: the mask + both attention maps must share one pitch, the head
+      // slices one size.
+      const attnBody = Math.round(window.innerHeight * 0.92) - 65;
+      const mapCell = fitCellPx(numTokens, Math.floor((attnBody - 385) / 2), 22);
+      const headCell = fitCellPx(numTokens, Math.floor((attnBody - 220) / 3) - 50, 10);
+      const projCells =(name: string, W: number[][], raw: number[][] | undefined, normed: number[][] | undefined, tail: string[]) => {
         // `beat(...)` tags each cell for the reveal timeline (playAttnStep). The tags name
         // elements, not columns, so a row that skips a step (V takes no norm and no RoPE) just has
         // no element in that beat, and a trace without the raw intermediates drops the beat entirely.
@@ -2322,9 +2355,9 @@ export function bootArchExplorer(
         return cells.concat(tail);
       };
       const ropeTail = (name: string, pre: number[][], post: number[][]) => [
-        beat('head', matBlock(name + ' head ' + (flowHead + 1) + ' (pre-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(pre, 10))),
+        beat('head', matBlock(name + ' head ' + (flowHead + 1) + ' (pre-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(pre, headCell))),
         beat('rope', opSpan('rotate (RoPE) →')),
-        beat('headpost', matBlock(name + ' head ' + (flowHead + 1) + ' (post-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(post, 10))),
+        beat('headpost', matBlock(name + ' head ' + (flowHead + 1) + ' (post-RoPE)', '(' + numTokens + ',' + hd + ')', gridHTML(post, headCell))),
       ];
       // One grid, not three independent rows (2026-08-01, by request): every row shares the same
       // column schema — stream · W = raw [→norm→ normed] →split→ head [rotate head] — so the three
@@ -2335,16 +2368,20 @@ export function bootArchExplorer(
       const projGrid = padGridRows([
         projCells('Q', lf.q_weight, lf.q_raw, lf.q_normed, ropeTail('Q', lf.q_by_head_prerope[flowHead], lf.q_by_head[flowHead])),
         projCells('K', lf.k_weight, lf.k_raw, lf.k_normed, ropeTail('K', lf.k_by_head_prerope[flowHead], lf.k_by_head[flowHead])),
-        projCells('V', lf.v_weight, lf.v_raw, undefined, [beat('head', matBlock('V head ' + (flowHead + 1), '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], 10)))]),
+        projCells('V', lf.v_weight, lf.v_raw, undefined, [beat('head', matBlock('V head ' + (flowHead + 1), '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], headCell)))]),
       ]);
       html += attnPanel('proj', aTab,
         '<div class="math-block"><h3>1. Project to Q / K / V (' + numTokens + ',' + H + '), split into ' + nh + ' heads of ' + hd + ' dims each, then rotate Q/K with RoPE</h3>' +
         // 10px column gap, not the helper's 16: this grid is up to 11 columns wide (the SwiGLU grids
         // it borrows from are 5), and at 16 it overflowed the modal instead of fitting.
-        diagramGrid(projGrid.rows, projGrid.cols, { colGap: 10, rowGap: 18, center: true }) +
-        '<div class="math-eq wrap">Q/K/V projections land at the full (' + numTokens + ', ' + H + ') hidden width' + (showRaw ? ' (that is what “Q raw” / “K raw” / “V raw” are above)' : '') + '. ' +
+        // rowGap 12 at the 6px floor: the two gaps are the last ~12px between fitting the 92vh
+        // body on a ~730px-tall window and an 11px scrollbar.
+        diagramGrid(projGrid.rows, projGrid.cols, { colGap: 10, rowGap: headCell === 6 ? 12 : 18, center: true }) +
+        // Prose, not an equation: styled `.math-hint` like every other step's explainer (was a
+        // `.math-eq wrap` box — the monospace box added ~55px the 92vh fit could not spare).
+        '<p class="math-hint" style="margin:8px 0 0">Q/K/V projections land at the full (' + numTokens + ', ' + H + ') hidden width' + (showRaw ? ' (that is what “Q raw” / “K raw” / “V raw” are above)' : '') + '. ' +
         (hasQkNorm ? 'Q and K then get RMSNorm’d at that same full width (V does not), and only after that are all three ' : 'All three are then ') +
-        'reshaped to (' + numTokens + ', ' + nh + ', ' + hd + ') so each of the ' + nh + ' heads gets its own ' + hd + '-dim slice: the per-head grids above are head ' + (flowHead + 1) + '\'s real slice, not the full ' + H + ' width. RoPE rotates Q and K only (never V), using this model\'s real rope_theta and each token\'s real position, before the attention scores in step 2 are computed.</div></div>',
+        'reshaped to (' + numTokens + ', ' + nh + ', ' + hd + ') so each of the ' + nh + ' heads gets its own ' + hd + '-dim slice: the per-head grids above are head ' + (flowHead + 1) + '\'s real slice, not the full ' + H + ' width. RoPE rotates Q and K only (never V), using this model\'s real rope_theta and each token\'s real position, before the attention scores in step 2 are computed.</p></div>',
         ATTN_PANEL_CLS);
 
       html += attnPanel('map', aTab,
@@ -2371,18 +2408,17 @@ export function bootArchExplorer(
         // The two `attention map` blocks are `mmap` (row A) and `mmap2` (row B) — identical calls on
         // identical data, differing only in the key, so they cannot drift.
         attnMapGrid(
-          [beat('mq', matBlock('Q head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.q_by_head[flowHead], 10))), beat('mdot1', opSpan('·', false, true)),
-            beat('mk', matBlock('K head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], 10))), beat('mscale', opSpan('ᵀ/√' + hd + ' +', false, true))],
-          beat('mmask', matBlock('mask M', '(' + numTokens + ',' + numTokens + ')', maskGridHTML(numTokens, 22))),
+          [beat('mq', matBlock('Q head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.q_by_head[flowHead], headCell))), beat('mdot1', opSpan('·', false, true)),
+            beat('mk', matBlock('K head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.k_by_head[flowHead], headCell))), beat('mscale', opSpan('ᵀ/√' + hd + ' +', false, true))],
+          beat('mmask', matBlock('mask M', '(' + numTokens + ',' + numTokens + ')', maskGridHTML(numTokens, mapCell))),
           [beat('msoft', opSpan('→ softmax →', false, true)),
-            beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(lf.attn_probs_all_heads[flowHead], 22)))],
-          beat('mmap2', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(lf.attn_probs_all_heads[flowHead], 22))),
+            beat('mmap', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(lf.attn_probs_all_heads[flowHead], mapCell)))],
+          beat('mmap2', matBlock('attention map', '(' + numTokens + ',' + numTokens + ')', attnGridHTML(lf.attn_probs_all_heads[flowHead], mapCell))),
           [beat('mdot2', opSpan('·', false, true)),
-            beat('mv', matBlock('V head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], 10))), beat('meq', opSpan('=', false, true)),
-            beat('mout', matBlock('head output', '(' + numTokens + ',' + hd + ')', gridHTML(lf.head_output_by_head[flowHead], 10)))],
+            beat('mv', matBlock('V head', '(' + numTokens + ',' + hd + ')', gridHTML(lf.v_by_head[flowHead], headCell))), beat('meq', opSpan('=', false, true)),
+            beat('mout', matBlock('head output', '(' + numTokens + ',' + hd + ')', gridHTML(lf.head_output_by_head[flowHead], headCell)))],
         ) +
-        '<p class="math-hint" style="margin:8px 0 0">Rows = query token, columns = key token. All ' + nh + ' heads run this independently and in parallel.</p>' +
-        MASK_LEGEND + '</div>', ATTN_PANEL_CLS);
+        mapFootnote('Rows = query token, columns = key token. All ' + nh + ' heads run this independently and in parallel.') + '</div>', ATTN_PANEL_CLS);
 
       html += attnPanel('concat', aTab,
         '<div class="math-block"><h3>3. Concatenate all ' + nh + ' heads back to (' + numTokens + ',' + H + '), project out</h3>' +

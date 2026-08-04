@@ -432,10 +432,16 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
       <div
         className={`math-modal-backdrop${mathStage ? ' open' : ''}`}
         id="math-backdrop"
+        style={{ alignItems: 'center' }}
         onClick={(ev) => { if (ev.target === ev.currentTarget) closeMathModal(); }}
       >
-        <div className="math-modal">
-          <div className="math-modal-header">
+        {/* Height-capped like the Router modal below (92vh, flex column, pinned header, scrolling
+            body): the tall Attention steps used to push the whole modal — pills included — off
+            screen and hand the scroll to the backdrop. Content is also sized to fit (adaptive
+            cellPx via fitCellPx), so the body scrollbar is the short-window fallback, not the
+            normal reading. */}
+        <div className="math-modal" style={{ maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+          <div className="math-modal-header" style={{ flex: '0 0 auto' }}>
             <h3 id="math-modal-title">{mathStage ? mathStage.payload.title : 'Matrix arithmetic'}</h3>
             {/* Header slot: where a stage is NAMED, level with ✕, exactly like the Router modal's
                 header — the Attention modal's "Attention" label + its step pills (attnSubTabBar),
@@ -448,7 +454,12 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
           {/* Stage content stays string-built (see archExplorer's StagePayload): the attention
               reveal addresses up to ~2,320 .mm-cells by query, and componentising them would add
               reconciliation to the heaviest panel in the app for no visible gain. */}
-          <div className="math-modal-body" id="math-content" dangerouslySetInnerHTML={bodyHtml} />
+          <div
+            className="math-modal-body"
+            id="math-content"
+            style={{ overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }}
+            dangerouslySetInnerHTML={bodyHtml}
+          />
         </div>
       </div>
 

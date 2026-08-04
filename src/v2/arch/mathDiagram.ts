@@ -98,6 +98,17 @@ export function expertStripWithNumbers(hue: string | Ramp, allProbs: number[], t
  *  defect there. Never special-case one builder's gap: `attnMapGrid`'s shared middle column stays
  *  aligned cell-for-cell only while the mask grid and the attention map grid share a pitch. */
 function gridGap(cellPx: number) { return (cellPx + 2) % 4 === 0 ? 2 : 1; }
+/** Largest cell whose n-row grid (pitch = cell + gap 2, plus the 2px border) stays under
+ *  budgetPx, capped at maxCell. Candidates are ONLY the sizes whose pitch is a multiple of 4 —
+ *  the device-pixel invariant `gridGap` documents above — so the picker can never emit a size
+ *  that reintroduces the fractional-pitch drift. Floor 6: below that a cell stops reading as a
+ *  tile at all (the 4/5px texture grids are deliberately not sized through this). */
+export function fitCellPx(n: number, budgetPx: number, maxCell: number): number {
+  for (const c of [22, 18, 14, 10]) {
+    if (c <= maxCell && n * (c + 2) + 2 <= budgetPx) return c;
+  }
+  return 6;
+}
 export function buildGridHTML(ramp: Ramp, grid: number[][], cellPx: number) {
   const cols = grid[0].length;
   const total = grid.length * cols;
@@ -166,9 +177,16 @@ export function buildMaskGridHTML(tokLabel: TokLabel, n: number, cellPx: number)
   html += '</div>';
   return html;
 }
-export const MASK_LEGEND = '<p class="math-note" style="display:flex;align-items:center;gap:7px;">' +
+/** The map step's single closing line (2026-08-03, by request — was two stacked lines, a
+ *  `.math-hint` sentence plus a separate MASK_LEGEND `.math-note`): the per-branch prose, then the
+ *  hatch swatch and a condensed legend, all on one flex line. `flex-wrap` lets it fold on narrow
+ *  modals instead of overflowing; the legend dropped "unhatched cells in the mask are 0" (the mask
+ *  prints its 0 glyphs) and folds the two hover targets into one clause. */
+export const mapFootnote = (prose: string) =>
+  '<p class="math-hint" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:6px 0 0;">' +
+  '<span>' + prose + '</span>' +
   '<span style="display:inline-block;width:15px;height:15px;border:1px solid var(--border);border-radius:3px;background:' + HATCH_BG + ';flex:0 0 auto;"></span>' +
-  'hatched = masked (causal, M = −∞); unhatched cells in the mask are 0. Hover a cell to see its M value or attention weight</p>';
+  '<span>hatched = masked (causal, M = −∞); hover a cell for its exact value.</span></p>';
 // 16 per-head slices side by side: what "concatenate the heads" actually produces. Each head keeps
 // its own ramp normalization (as everywhere else in this modal), so a quiet head stays legible.
 export function buildHeadStripHTML(ramp: Ramp, heads: number[][][], cellPx: number) {
