@@ -735,7 +735,7 @@ footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line
    (same operation as the in-card norms, just outside the loop) is what it lines up with instead. */
 .pdf-block.thin.final-norm { align-self: flex-start; }
 .pdf-block.thin h4 {
-  writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; font-size: 11px; letter-spacing: 0.02em;
+  writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; font-size: 12px; letter-spacing: 0.02em;
   white-space: nowrap;
 }
 

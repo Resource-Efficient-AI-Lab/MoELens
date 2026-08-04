@@ -76,7 +76,7 @@ export function MoeApp() {
             type="button"
             onClick={() => setTab('domain')}
           >
-            Domain Specialization
+            Domain Specialization Analysis
           </button>
         </div>
 
