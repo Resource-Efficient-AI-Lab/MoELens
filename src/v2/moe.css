@@ -81,9 +81,18 @@
   padding: 6px 0.5in 24px;
 }
 .moe-wrap { max-width: 1440px; margin: 0 auto 0 0; }
+/* Runs an element to both viewport edges while keeping its content on the page's content column.
+   -0.5in cancels .moe-root's own horizontal padding exactly at any width — the element sits inside
+   .moe-wrap, whose left edge IS that padding edge — 100vw spans the viewport, and the padding puts
+   the content back on the column. Same technique as .top-tabs.
+   NOT margin-left: calc(50% - 50vw) with a percentage-derived padding: that is centring math, and
+   .moe-wrap is left-aligned (margin: 0 auto 0 0) capped at 1440px, so past ~1536px it overshot to
+   the left — the header title sat ~204px in while every row below it sat at 48px — and fell short
+   on the right. The mismatch was invisible while the title was 20px/650 and obvious once it wasn't. */
 .full-bleed {
-  width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
-  box-sizing: border-box; border-radius: 0; padding-left: max(24px, calc(50% - 540px + 24px)); padding-right: max(24px, calc(50% - 540px + 24px));
+  width: 100vw; margin-left: -0.5in;
+  box-sizing: border-box; border-radius: 0;
+  padding-left: 0.5in; padding-right: 0.5in;
 }
 header.full-bleed {
   background: var(--surface-1); border-bottom: 1px solid var(--border);
@@ -144,12 +153,9 @@ code.inline { background: var(--gridline); border-radius: 4px; padding: 1px 5px;
 .play-btn:disabled:hover { background: transparent; }
 
 /* Not in the prototype: the tab bar's rule is a page-level divider, so it runs to both viewport
-   edges like header.full-bleed's does, instead of stopping at the content column. Done with a
-   negative margin + matching padding rather than the .full-bleed class, because that class's
-   margin-left is calc(50% - 50vw) — centring math, and .moe-wrap is left-aligned (margin: 0 auto
-   0 0) and caps at 1440px, so past ~1536px it overshoots left and falls short on the right.
-   -0.5in cancels .moe-root's own padding exactly at any width; the padding puts the tabs back on
-   the content column. */
+   edges like header.full-bleed's does, instead of stopping at the content column. Spelled out
+   inline rather than via .full-bleed only because it wants no right padding — the two now use the
+   identical -0.5in / 100vw / 0.5in technique, so they cannot drift apart at any viewport width. */
 .top-tabs {
   display: flex; gap: 6px; border-bottom: 1px solid var(--border);
   margin: 1px 0 4px; margin-left: -0.5in;
