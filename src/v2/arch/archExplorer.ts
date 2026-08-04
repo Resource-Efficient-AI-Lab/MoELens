@@ -598,7 +598,10 @@ export function bootArchExplorer(
     ], { nowrap: true });
     // The summation indexes the STORED matrix by (row = expert, col = dim), so it carries no ᵀ —
     // unlike the diagram above it, which is a matmul. See wDims / TRANSPOSE_NOTE.
-    html += '<div class="math-eq wrap" style="font-size:9.5px;">∑<sub>d=1</sub><sup>' + H + '</sup> h<sub>d</sub>·W_router[e,d] → logits[e] &nbsp;<span class="op">then softmax →</span>&nbsp; probs[' + (e + 1) + '] = <span class="val">' + (p * 100).toFixed(3) + '%</span> &nbsp;<span class="op">top-' + K + ' →</span> ' +
+    // Equation form + stacked `.math-sum` limits, matching the MoA router's step 2 (2026-08-04, by
+    // request). These two summations are deliberately parallel — the same statement about two
+    // routers — so they have to be typeset the same way.
+    html += '<div class="math-eq wrap">logits[e] = <span class="math-sum"><span class="lim">' + H + '</span><span class="sig">∑</span><span class="lim">d=1</span></span> h<sub>d</sub> · W<sub>router</sub>[e,d] &nbsp;<span class="op">then softmax →</span>&nbsp; probs[' + (e + 1) + '] = <span class="val">' + (p * 100).toFixed(3) + '%</span> &nbsp;<span class="op">top-' + K + ' →</span> ' +
       (isTop ? '<span class="val">selected, rank ' + (topIdx + 1) + '</span>' : '<span class="op">not selected</span>') + '</div>' +
       // This tab is the modal's default, so the convention has to be stated here too and not only on
       // step 2 — a reader who never opens step 2 still sees a ᵀ in the label above.
@@ -2202,21 +2205,35 @@ export function bootArchExplorer(
           // modal carries the same summation for the same reason; without it the grid can read as
           // decoration. Pointless next to the fallback arrow, which claims no such structure.
           (arW
-            ? '<div class="math-eq wrap" style="font-size:9.5px;">∑<sub>d=1</sub><sup>' + H + '</sup> ln1_out<sub>d</sub>·W_router[e,d] → logits[e] &nbsp;<span class="op">then softmax →</span>&nbsp; probs[e] &nbsp;<span class="op">top-' + ar.top_k + ' →</span> the ' + ar.top_k + ' experts that run</div>'
+            // Shrink-wrapped and centred under the diagram (2026-08-04, by request): `.math-eq` is a
+            // block, so it used to stretch the full modal width with the equation stranded on its
+            // left edge. `width:fit-content` + auto margins, inline so the class stays left-aligned
+            // full-width everywhere else. The class's own `max-width:100%` still caps it, and
+            // `.wrap`'s `white-space:normal` lets it fold rather than overflow on a narrow modal.
+            // Written as an equation, not as prose (2026-08-04, by request): the defined quantity is
+            // on the left of an `=`, and the sum carries its limits stacked on `.math-sum` rather
+            // than the old `<sub>d=1</sub><sup>2048</sup>`, which painted as the single run
+            // "d=12048". `W_router` keeps its name as a subscript for the same reason the strip
+            // above is labelled W_router — it is one matrix, not W indexed by "router".
+            ? '<div class="math-eq wrap" style="width:fit-content;margin-left:auto;margin-right:auto;text-align:center;">logits[e] = <span class="math-sum"><span class="lim">' + H + '</span><span class="sig">∑</span><span class="lim">d=1</span></span> ln1_out<sub>d</sub> · W<sub>router</sub>[e,d] &nbsp;<span class="op">then softmax →</span>&nbsp; probs[e] &nbsp;<span class="op">top-' + ar.top_k + ' →</span> the ' + ar.top_k + ' experts that run</div>'
             : '') +
-          '<p class="math-hint" style="margin:8px 0 0">Numbered cells are the ' + ar.top_k + ' the router selected. These are its raw softmax probabilities, shown exactly as the model produces them. The selected ' + ar.top_k + ' are not renormalized, so they do not add up to 100%.' +
-          (arW
-            ? ' <b>W_router</b> is the router\'s real weight matrix, one row per attention expert: row 1 dotted with the stream row on its left gives expert 1\'s score, row 2 gives expert 2\'s, and so on for all ' + ar.num_experts + '. Its ' + H + ' columns are downsampled to fit, so the shading shows the matrix\'s structure rather than individual weights. ' + TRANSPOSE_NOTE
-            : ' The router\'s own weight matrix is not part of this trace, which is why the multiply above is an arrow rather than a grid.') +
-          '</p>' +
-          '<div class="moa-expert-chips" style="margin:12px 0 0;">' + routeChips + '</div>' +
+          // The trailing explainer that used to sit here (numbered cells / not renormalized /
+          // W_router's row structure / TRANSPOSE_NOTE) was removed 2026-08-04, by request: the step
+          // already opens with a full intro paragraph and the summation above states the row-dotting,
+          // so the panel read as prose → diagram → equation → more prose. The `ᵀ` in W_router's dim
+          // label now goes unexplained inside this modal — deliberate, don't re-add a note for it.
+          '<div class="moa-expert-chips" style="margin:16px 0 0;">' + routeChips + '</div>' +
           '<p class="math-hint" style="margin:5px 0 0;text-align:center;">Both of these run for this token. Steps 1, 3 and 4 follow one at a time (expert ' + (E + 1) + ' here).</p>' +
           // Last in the panel: the strip above is the reading, this is its exact numbers, so it
           // closes the step rather than interrupting the diagram → explanation → chips run.
           // Centered inline, not on `.math-eq` itself — that class is shared with every other math
           // modal, where the equations are left-aligned monospace on purpose. This one is a list of
           // 8 short items under a centered diagram, so it centres with what it describes.
-          '<div class="math-eq wrap" style="font-size:10.5px;text-align:center;margin-top:14px;">' + probList + '</div>' +
+          // The box is off (2026-08-04, by request) but the class stays: it carries the monospace
+          // face, the line-height and the `.op`/`.val` colours the list is built from. Only the fill
+          // and the rule are dropped — `border-color:transparent`, NOT `border:0`, so the 1px still
+          // occupies space and the text does not shift out of the position it had with the box.
+          '<div class="math-eq wrap" style="font-size:10.5px;text-align:center;margin-top:14px;background:none;border-color:transparent;">' + probList + '</div>' +
           '</div>', ATTN_PANEL_CLS);
 
         html += attnPanel('map', aTab,
@@ -2304,14 +2321,18 @@ export function bootArchExplorer(
         html += attnPanel('concat', aTab,
           '<div class="math-block"><h3>4. Concatenate each selected expert’s ' + nh + ' query heads → project with its own W_o → combine by router weight</h3>' +
           concatDiagram +
-          '<div class="math-eq wrap">' +
+          // Prose, not an equation box — same `.math-hint` restyle as step 1's explainer. The copy is
+          // trimmed to what the diagram does not already say: the per-lane `× weight` operators print
+          // both weights and the header paragraph names which expert steps 1 and 3 follow, so neither
+          // is repeated here.
+          '<p class="math-hint" style="margin:8px 0 0">' +
           (allLanes
             // Position-independent wording: the lanes are ordered by router weight, so the expert the
             // other steps follow is not always the top lane — "the second lane is the other one's"
             // would be wrong whenever the chips select the lower-weighted expert.
-            ? (ar.top_k === 2 ? 'Both' : 'All ' + ar.top_k) + ' selected experts run the whole of steps 1 and 3 for this token: one lane above each, and steps 1 and 3 follow expert ' + (E + 1) + '. Each projects with its own W_o, is scaled by its router weight (' + selText + '; raw softmax probabilities, so they do not add to 100%), and the ' + ar.top_k + ' scaled outputs are summed into this block’s real attention output.'
-            : 'Each selected expert projects with its own W_o; the ' + ar.top_k + ' expert outputs are then combined by their router weights (' + selText + ') into this block’s real attention output (shown above: the combined result of both selected experts, not expert ' + (E + 1) + ' alone).') +
-          '</div></div>', ATTN_PANEL_CLS);
+            ? (ar.top_k === 2 ? 'Both' : 'All ' + ar.top_k) + ' selected experts run steps 1 and 3 for this token, one lane each. Each projects with its own <b>W_o</b> and is scaled by its router weight (raw softmax, so they do not add to 100%); the ' + ar.top_k + ' scaled outputs are summed into this block’s real attention output.'
+            : 'Each selected expert projects with its own <b>W_o</b>; the ' + ar.top_k + ' outputs are combined by their router weights (' + selText + ') into this block’s real attention output — both experts together, not expert ' + (E + 1) + ' alone.') +
+          '</p></div>', ATTN_PANEL_CLS);
       }
 
       // Step 2's chips used to be wired here (class selector, so a `<span>` swap alone would not

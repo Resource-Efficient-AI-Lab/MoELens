@@ -404,6 +404,19 @@ footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line
   padding: 10px 14px; max-width: 100%; overflow-x: auto; white-space: pre;
 }
 .math-eq.wrap { white-space: normal; overflow-wrap: break-word; line-height: 1.8; }
+/* Display-style summation: limits sit above and below the sigma the way they do in print, instead
+   of `∑<sub>d=1</sub><sup>2048</sup>`, which renders as a single run "d=12048" and has to be
+   decoded. Inline-flex column, `vertical-align: middle`, so the operator sits inside `.math-eq`'s
+   line box without a float or absolute positioning — it does grow that line box (the MoA route
+   step's box measures 62.8px tall against ~40px inline), which is why this belongs on a one-line
+   equation and not mid-paragraph. Sizes are in `em` — the same markup is used at 12.5px and at
+   the 10.5–11.5px inline overrides. */
+.math-sum {
+  display: inline-flex; flex-direction: column; align-items: center;
+  vertical-align: middle; line-height: 1; margin: 0 3px;
+}
+.math-sum .sig { font-size: 1.85em; line-height: 0.92; }
+.math-sum .lim { font-size: 0.62em; line-height: 1.25; color: var(--text-secondary); }
 .math-eq .dim { color: var(--seq-500); }
 .math-eq .op { color: var(--text-muted); }
 .math-eq .val { color: var(--text-secondary); }
