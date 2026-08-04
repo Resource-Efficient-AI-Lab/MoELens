@@ -103,15 +103,15 @@ export function DomainCellModal({ data, cell, onClose }: DomainCellModalProps) {
             <span className="font-label font-semibold">{total}</span> tokens.
           </p>
           <p>
-            domain rate = {count} ÷ {total} ={' '}
+            Expert activation rate = {count} ÷ {total} ={' '}
             <span className="font-label font-semibold">{(rate * 100).toFixed(2)}%</span>
           </p>
           <p>
-            normalized (÷ top-{data.top_k_experts}, sums to 100% across all {data.num_experts}) ={' '}
+            Normalized (÷ top-{data.top_k_experts}, sums to 100% across all {data.num_experts}) ={' '}
             <span className="font-label font-semibold">{normalized.toFixed(2)}%</span>
           </p>
           <p>
-            avg softmax probability (selected or not) ={' '}
+            Avg softmax probability (selected or not) ={' '}
             <span className="font-label font-semibold">{avgProb.toFixed(2)}%</span>
           </p>
         </div>
