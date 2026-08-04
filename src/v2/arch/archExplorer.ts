@@ -109,6 +109,10 @@ export function bootArchExplorer(
     /** Every internal opener of the math modal (block clicks, token chips, the head ‹ ›, the
      *  routing-grid cell click) routes through here into React state. */
     onOpenStage?: (stage: OpenStage) => void;
+    /** Fired when the Router modal is opened from the MoE block's router sub-panel. React uses it
+     *  to replay the Per-token fan's beat sequence — the modal is only display:none until this
+     *  click, so the beats its mount effect ran at page load played unseen behind it. */
+    onRouterOpen?: () => void;
   }
 ): ArchExplorerApi {
   const root = document.querySelector('.moe-root') as HTMLElement;
@@ -1508,6 +1512,12 @@ export function bootArchExplorer(
       routerPanel.addEventListener('click', (ev) => {
         ev.stopPropagation();
         selectBlockByIndex(moeLayerBlockIndex);
+        // ⚠ BEFORE `.open`, and React flushes it synchronously: this rewinds the Per-token fan to
+        // beat 0 while the modal is still display:none, so the reader never sees a frame of the
+        // settled fan and the rewind itself runs no CSS transitions (a subtree that is not being
+        // rendered has no style to transition from). Measured with the class added first: the fan
+        // stayed fully lit for ~40ms of visible modal.
+        opts?.onRouterOpen?.();
         moeGridBackdrop.classList.add('open');
         fitGridModalHeight(routerTab);
         animateRouting();

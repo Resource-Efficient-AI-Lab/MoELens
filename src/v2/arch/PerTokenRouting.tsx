@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { RouterDiagram } from '../../components/Journey/RouterDiagram';
 import { usePrefersReducedMotion } from '../../utils/usePrefersReducedMotion';
 import type { PromptFlow } from './types';
 
 type Stage = 0 | 1 | 2 | 3 | 4;
 
-/** Beat offsets (ms from the trigger) — identical to the parked JourneyStage timing.
- *  Index i drives stage i+1: 1 token arrives, 2 scores computed, 3 top-8 fire, 4 weights shown. */
-const BEAT_OFFSETS = [120, 370, 770, 1170];
+/** Beat offsets (ms from the trigger).
+ *  Index i drives stage i+1: 1 token arrives, 2 scores computed, 3 top-8 fire, 4 weights shown.
+ *  ⚠ Each gap must be ≥ the CSS transition the beat it starts has to cover (RouterDiagram: edges
+ *  and router fill 500ms, expert nodes 450ms), or the beat is visually cut off by the next one.
+ *  The old JourneyStage gaps (250/400/400 from `[120, 370, 770, 1170]`) were all shorter than
+ *  their own transitions, which is what read as "too fast"; the transition durations themselves
+ *  were already fine and are unchanged. Total run 2.02s. */
+const BEAT_OFFSETS = [120, 620, 1320, 2020];
 
 /** Spell out small counts so the caption reads naturally ("the other seven" / "the other five"),
  *  matching the original OLMoE copy while staying correct for DeepSeek (top-6) and JetMoE (top-2). */
@@ -27,6 +32,10 @@ interface PerTokenRoutingProps {
   flow: PromptFlow;
   /** 0-based layer, the modal's shared React-owned `currentLayer`. */
   currentLayer: number;
+  /** Bumped by ArchitectureTab every time the Router modal is opened (the island reports the open
+   *  through `onRouterOpen`, since the backdrop is still an imperative class toggle). Replays the
+   *  beats, so the reader watches the routing happen instead of arriving at the settled picture. */
+  routerOpenNonce?: number;
   /** Hands the beat-replay trigger up to the modal, which renders ▶ Replay routing in the shared
    *  layer row so it sits exactly where the All-tokens tab's replay button does. `null` means there
    *  is nothing to replay (reduced motion, or a dense layer with no fan). */
@@ -36,11 +45,16 @@ interface PerTokenRoutingProps {
 /**
  * The "Per-token routing" sub-tab of the Router modal: a token-chip row picks which token to
  * follow, and the parked `RouterDiagram` fan shows that token being routed to its top-8 experts
- * for the shared current layer. Changing token replays the full 1→4 beat sequence; changing layer
- * snaps straight to the settled stage 4; ▶ Replay re-runs the beats on demand. Under reduced
- * motion everything pins to stage 4 with no halo.
+ * for the shared current layer. Opening the modal and changing token both replay the full 1→4 beat
+ * sequence; changing layer snaps straight to the settled stage 4; ▶ Replay re-runs the beats on
+ * demand. Under reduced motion everything pins to stage 4 with no halo.
  */
-export function PerTokenRouting({ flow, currentLayer, onReplayReady }: PerTokenRoutingProps) {
+export function PerTokenRouting({
+  flow,
+  currentLayer,
+  routerOpenNonce,
+  onReplayReady,
+}: PerTokenRoutingProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [followTokenIdx, setFollowTokenIdx] = useState(0);
   const [stage, setStage] = useState<Stage>(reducedMotion ? 4 : 0);
@@ -51,26 +65,49 @@ export function PerTokenRouting({ flow, currentLayer, onReplayReady }: PerTokenR
   const expertCount = flow.num_experts;
   const routingLayers = flow.layers;
 
-  // Replay the beats whenever the followed token changes (mount counts as the first token change)
-  // or the ▶ Replay button is pressed. Layer changes are handled separately (they only snap).
-  useEffect(() => {
+  // The pending beat timeouts, held in a ref so the layer-change effect below can cancel them.
+  const beatTimers = useRef<number[]>([]);
+
+  // Replay the beats whenever the Router modal is opened, the followed token changes (mount counts
+  // as the first token change) or the ▶ Replay button is pressed. Layer changes are handled
+  // separately (they only snap).
+  // ⚠ useLayoutEffect, not useEffect, and it is the second half of the no-flash pair (the first is
+  // ArchitectureTab's flushSync). flushSync makes the nonce's RENDER synchronous, but passive
+  // effects are still deferred, so the rewind to beat 0 would land ~a frame after the island had
+  // made the modal visible — the settled fan flashing before it goes dark. A layout effect runs
+  // inside that same synchronous commit, and its own setState is flushed before paint. Nothing
+  // here measures geometry, so running pre-paint costs nothing.
+  useLayoutEffect(() => {
     if (reducedMotion) {
       setStage(4);
       return;
     }
     setStage(0);
-    const timers = BEAT_OFFSETS.map((ms, i) => setTimeout(() => setStage((i + 1) as Stage), ms));
-    return () => timers.forEach(clearTimeout);
-  }, [followTokenIdx, replayNonce, reducedMotion]);
+    beatTimers.current = BEAT_OFFSETS.map((ms, i) =>
+      window.setTimeout(() => setStage((i + 1) as Stage), ms),
+    );
+    return () => {
+      beatTimers.current.forEach(clearTimeout);
+      beatTimers.current = [];
+    };
+  }, [followTokenIdx, replayNonce, reducedMotion, routerOpenNonce]);
 
   // Layer change → snap instantly to the fully-lit stage 4 (no beats). Skipped on mount so it
   // doesn't clobber the first token's beat sequence started by the effect above.
+  // ⚠ It must also CANCEL any beats still pending, or a layer paged mid-sequence snaps to 4 and is
+  // then dragged back down to stage 1 by the surviving timeouts — the effect above only clears them
+  // when its own deps change, which a layer change is not. The window is the full 2.02s run, so the
+  // modal's own layer pager hits it easily.
+  // ⚠ Do NOT lift those two lines into a `clearBeats()` helper: exhaustive-deps would then want it
+  // in this dep list, which re-runs the effect on every render and kills the ladder outright.
   const mounted = useRef(false);
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       return;
     }
+    beatTimers.current.forEach(clearTimeout);
+    beatTimers.current = [];
     setStage(4);
   }, [currentLayer]);
 

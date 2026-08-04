@@ -115,7 +115,9 @@ function RouterDiagramImpl({
   const routerActive = stage >= 2;
   const tokenPillOpacity = stage <= 1 ? 1 : 0;
   // Token pill travels left-to-right onto the router, mirroring the router's 9 o'clock position.
-  const tokenPillX = tokenAtRouter ? layout.router.x : layout.router.x - 110;
+  // The offset it starts from — the pill itself is drawn AT the router and slid into place with a
+  // transform, see the <g> that carries it.
+  const tokenPillOffset = tokenAtRouter ? 0 : -110;
 
   // viewBox → CSS px inside the wrapper. The SVG's box no longer keeps the viewBox aspect (the
   // Router modal sizes it to the height it has left), so preserveAspectRatio="xMidYMid meet"
@@ -274,26 +276,37 @@ function RouterDiagramImpl({
           Router
         </text>
 
-        {/* Token pill: travels from left of the router onto it, then fades as it's absorbed. */}
-        <g style={{ opacity: tokenPillOpacity, transition: 'opacity 400ms var(--ease-out-expo)' }}>
+        {/* Token pill: travels from left of the router onto it, then fades as it's absorbed.
+            ⚠ The slide is ONE `transform` on this <g>, never an `x` on the two children. Chrome
+            transitions the `x` presentation attribute on <rect> but NOT on <text>, so the per-child
+            version left the label snapped to its final spot while the pill body was still sliding
+            — measured 107px apart 100ms in, visibly detached for ~400ms. Harmless while the beats
+            only ran behind a hidden modal; beat 1 now leads every Router-modal open.
+            `px` inside an SVG transform is user units, so -110 is the same offset as before. */}
+        <g
+          style={{
+            opacity: tokenPillOpacity,
+            transform: `translateX(${tokenPillOffset}px)`,
+            transition: 'opacity 400ms var(--ease-out-expo), transform 550ms var(--ease-out-expo)',
+          }}
+        >
           <rect
-            x={tokenPillX - 46}
+            x={layout.router.x - 46}
             y={layout.router.y - 14}
             width={92}
             height={28}
             rx={14}
             fill="var(--color-ink)"
-            style={{ transition: 'x 550ms var(--ease-out-expo)' }}
           />
           <text
-            x={tokenPillX}
+            x={layout.router.x}
             y={layout.router.y}
             textAnchor="middle"
             dominantBaseline="central"
             fontFamily="var(--font-label)"
             fontSize={12}
             fill="var(--color-paper)"
-            style={{ transition: 'x 550ms var(--ease-out-expo)', pointerEvents: 'none' }}
+            style={{ pointerEvents: 'none' }}
           >
             {tokenLabel.trim()}
           </text>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
+import { flushSync } from 'react-dom';
 import {
   bootArchExplorer,
   type ArchExplorerApi, type OpenStage, type RouterTabRegime, type StagePayload,
@@ -108,6 +109,21 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
     (replay: (() => void) | null) => setPerTokenReplay(() => replay),
     [],
   );
+  // Opening the Router modal replays the Per-token fan's beats. The modal's open/close is still an
+  // imperative class toggle inside archExplorer, so the island reports the open through
+  // `onRouterOpen` and this counter carries it into PerTokenRouting as a replay trigger — without
+  // it the beats run once, ~1.2s after page load, behind a display:none modal.
+  // ⚠ flushSync, and it is not an optimisation. React schedules this update concurrently, and
+  // measured it landed ~40ms (2–3 painted frames) after the island had already made the modal
+  // visible — long enough to read as a flash of the settled fan before it rewound to beat 0.
+  // Flushing inside the island's click handler puts the rewind in the same task as the class
+  // toggle, i.e. before the browser paints the modal at all. Safe here: the caller is a native
+  // DOM listener, never a render or a lifecycle.
+  const [routerOpenNonce, setRouterOpenNonce] = useState(0);
+  const handleRouterOpen = useCallback(
+    () => flushSync(() => setRouterOpenNonce((n) => n + 1)),
+    [],
+  );
 
   // ---- guided tour: React owns whether it is running and which step ----
   const [tourOpen, setTourOpen] = useState(false);
@@ -142,6 +158,7 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
     const api = bootArchExplorer(flow, {
       onLayerChange: setCurrentLayer,
       onOpenStage: handleOpenStage,
+      onRouterOpen: handleRouterOpen,
     });
     archApiRef.current = api;
     setCurrentLayer(0); // a re-boot (prompt change) resets the explorer to layer 1
@@ -159,7 +176,7 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
       api.cleanup();
       archApiRef.current = null;
     };
-  }, [flow, handleOpenStage]);
+  }, [flow, handleOpenStage, handleRouterOpen]);
 
   // Wire the stage's controls and start its reveal, once the HTML above has committed.
   // ⚠ `mathStage` is the ONLY dependency, and that is load-bearing. ▶ Step through layers
@@ -604,10 +621,14 @@ export function ArchitectureTab({ visible, flow, promptIndex, error, onDomainCha
                   : { display: 'none' }
               }
             >
+              {/* ⚠ `routerOpenNonce` is a PROP, deliberately not folded into the key: remounting on
+                  every open would also reset `followTokenIdx`, silently throwing away the token the
+                  reader picked each time they close and reopen the modal. */}
               <PerTokenRouting
                 key={promptIndex}
                 flow={flow}
                 currentLayer={currentLayer}
+                routerOpenNonce={routerOpenNonce}
                 onReplayReady={registerPerTokenReplay}
               />
             </div>
