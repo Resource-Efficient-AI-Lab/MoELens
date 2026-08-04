@@ -1601,12 +1601,14 @@ export function bootArchExplorer(
    *  two norms differ only in what reads their output, so it belongs to the same thought, and a
    *  free-standing paragraph read as a separate note about a separate thing. The popover's leading
    *  `y = x / √(mean(x²)+ε) ⊙ γ` was dropped on the way in — the .math-eq line above already
-   *  prints that exact formula. */
-  function rmsBlock(title: string, before: number[][], weight: number[], after: number[][], note?: string, tail?: string) {
+   *  prints that exact formula.
+   *  `explain` (default true) prints the shared how-a-norm-works lead before `tail`. `ln2` passes
+   *  false (2026-08-04, by request): its diagram is identical to `ln1`'s, which the reader has
+   *  already met, so the second modal keeps only the sentence that says what is different about it.
+   *  The lead's old third sentence — the grids/γ strip being downsampled to ~H/20 channels a cell —
+   *  was dropped the same day, which is why `before[0].length` is no longer read here. */
+  function rmsBlock(title: string, before: number[][], weight: number[], after: number[][], note?: string, tail?: string, explain = true) {
     const dims = '(' + before.length + ', ' + DATA.hidden_size + ')';
-    // Each drawn cell averages a bucket of channels (2048 → 20 columns on all three models), so a
-    // reader must be told cell-by-cell arithmetic cannot reproduce the equation.
-    const chansPerCell = Math.round(DATA.hidden_size / before[0].length);
     return '<div class="math-block"><h3>' + title + '</h3>' +
       diagramRow([
         matBlock('x (before)', dims, gridHTML(before, 5)),
@@ -1616,8 +1618,9 @@ export function bootArchExplorer(
         matBlock('normalized stream', dims, gridHTML(after, 5)),
       ]) +
       '<div class="math-eq wrap">y = x / sqrt(mean(x²) + ε) ⊙ γ' + (note ? ' &nbsp;<span class="op">— ' + note + '</span>' : '') + '</div>' +
-      '<p class="math-hint" style="margin:8px 0 0">One row per token. Each row is normalized by <b>its own</b> root-mean-square, taken over that row\'s ' + DATA.hidden_size + ' numbers alone, so tokens never mix here. <b>γ</b> is a single learned vector of ' + DATA.hidden_size + ' gains, the same one applied to every row. The grids and the γ strip are downsampled to fit: each cell is an average of ~' + chansPerCell + ' of the ' + DATA.hidden_size + ' channels, not a single number, so the formula holds for the real rows, not cell by cell on what is drawn.' +
-      (tail ? ' ' + tail : '') + '</p></div>';
+      '<p class="math-hint" style="margin:8px 0 0">' +
+      (explain ? 'One row per token. Each row is normalized by <b>its own</b> root-mean-square, taken over that row\'s ' + DATA.hidden_size + ' numbers alone, so tokens never mix here. <b>γ</b> is a single learned vector of ' + DATA.hidden_size + ' gains, the same one applied to every row.' : '') +
+      (tail ? (explain ? ' ' : '') + tail : '') + '</p></div>';
   }
 
   /** Sub-tab + head-nav wiring, shared by both attention branches (it was duplicated verbatim in
@@ -2446,9 +2449,11 @@ export function bootArchExplorer(
       const feedName = DATA.layers[li].tokens ? 'MoE' : 'FFN';
       title = 'RMSNorm (pre-' + feedName + ') · all ' + numTokens + ' tokens · layer ' + (li + 1);
       headerExtra = stageTitleBar('RMSNorm (Pre-' + feedName + ')');
-      // `tail` names what reads this norm's output.
+      // `tail` names what reads this norm's output, and is the WHOLE hint here (`explain: false`) —
+      // the shared lead belongs to the pre-attention modal the reader has already opened.
       html = rmsBlock('RMSNorm', lf.after_attn_residual, lf.ln2_weight, lf.ln2_out, 'ε = ' + RMS_EPS,
-        'A side branch too, with its own learned γ separate from the pre-attention norm\'s: this is what the ' + (DATA.layers[li].tokens ? 'MoE block and its router' : 'feed-forward block') + ' reads, while the residual stream is carried forward untouched.');
+        'A side branch too, with its own learned γ separate from the pre-attention norm\'s: this is what the ' + (DATA.layers[li].tokens ? 'MoE block and its router' : 'feed-forward block') + ' reads, while the residual stream is carried forward untouched.',
+        false);
     } else if (stageKey === 'moe-combine-all') {
       title = 'Combined Weighted Output · all ' + numTokens + ' tokens · layer ' + (li + 1);
       if (!DATA.layers[li].tokens) {

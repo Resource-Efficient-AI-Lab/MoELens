@@ -577,8 +577,14 @@ footer.note { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; line
 .pdf-head-nav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; font-size: 12.5px; color: var(--text-secondary); }
 .pdf-head-nav button { border: none; background: none; color: var(--text-secondary); cursor: pointer; font-size: 15px; padding: 0 3px; }
 .pdf-head-nav button:hover { color: var(--seq-500); }
+/* Hover deliberately does NOT recolor this border (2026-08-04, by request). It used to go
+   `--seq-500` blue, which is the only place a block's own accent was overridden on hover: the
+   MoE/Dense block is `--light-red` at rest, so the swap read as a different block rather than the
+   same one under the cursor. The affordance is carried by the shared `.pdf-block:hover` lift +
+   shadow, this cursor, and the block's own "Click either panel below" copy — this block ships no
+   `.pdf-click-hint` pill (the two subpanels are the click targets, and they keep their own
+   accent-tinted hover lift). */
 .pdf-block.moe-block { cursor: pointer; }
-.pdf-block.moe-block:hover { border-color: var(--seq-500); }
 /* Connectors don't stretch — they sit at a fixed top offset so the arrow threads through the
    body of every top-aligned card (including the shortest, MoE/Final) on one consistent flow-line,
    instead of floating in the empty gap beneath a short card.
