@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import './moe.css';
 import { useCategoryMultiSelect } from '../components/ClusterPlot/CategoryTogglePicker';
+import { CATEGORIES } from '../data/categories';
 import { ArchitectureTab } from './arch/ArchitectureTab';
 import { ArchPromptPicker } from './arch/ArchPromptPicker';
 import { usePromptFlow } from './arch/usePromptFlow';
@@ -32,8 +33,11 @@ export function MoeApp() {
   // Lifted all the way up here for the same reason as the model key: its section unmounts on every
   // sub-tab switch and the whole tab unmounts on every top-tab switch, either of which would throw
   // the reader's selection away. `domainModelKey` as the reset key makes a model switch — and only
-  // a model switch — collapse it back to Code.
-  const umapPicker = useCategoryMultiSelect('code', undefined, domainModelKey);
+  // a model switch — reset it back to all six categories.
+  // Starts with every category on, like the Domain tab's shared picker: the whole map is the
+  // reading, and the pills subtract from it rather than build it up. `syncTo` is a constant
+  // (never the header category) so nothing collapses the set back to one behind the reader.
+  const umapPicker = useCategoryMultiSelect('code', CATEGORIES, domainModelKey);
   // The Architecture tab's model + prompt selection lives here because its dropdowns sit *above*
   // the top-tab bar (you pick what you're looking at, then which view of it). The tab itself just
   // consumes the resulting flow.

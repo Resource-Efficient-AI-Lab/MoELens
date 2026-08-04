@@ -4,8 +4,8 @@ import { CATEGORY_PALETTE } from './categoryPalette';
 
 /**
  * Multi-select category state for the Experts UMAP sub-tab. Unlike the exclusive
- * pair-picker the Compare panel uses, this lets the reader progressively add up to all
- * six categories to the scatter at once.
+ * pair-picker the Compare panel uses, this lets the reader hold any subset of the six
+ * categories on the scatter at once.
  *
  * `syncTo` is the global header category: whenever it changes, the active set collapses
  * back to just that one category (the header stays authoritative). That reset happens

@@ -205,9 +205,9 @@ function DomainTabBody({
   onOpenAll: () => void;
   onCloseAll: () => void;
 }) {
-  // Starts with every category on for these two sub-tabs (unlike the UMAP sub-tab's own picker,
-  // which starts synced to just one) — still collapses to the synced category if the reader picks
-  // a different prompt back in the Architecture tab.
+  // Starts with every category on for these two sub-tabs (as the UMAP sub-tab's own picker now
+  // does too) — but unlike that one, this set still collapses to the synced category if the
+  // reader picks a different prompt back in the Architecture tab.
   const shared = useCategoryMultiSelect(syncCategory, SHARED_PICKER_CATEGORIES);
   // Opens on the last layer, which is never dense — the floor only matters once the reader drags.
   const [layer, setLayer] = useState(data.num_layers - 1);
