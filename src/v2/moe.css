@@ -91,6 +91,21 @@ header.full-bleed {
 }
 
 header h1 { font-size: 20px; font-weight: 650; margin: 0 0 2px; }
+/* Title lockup. The colon's job is done by the gap instead of punctuation: the wordmark carries
+   the header on weight and scale (850 at 30px), the descriptor drops to body size in secondary
+   ink on the same baseline. --text-secondary, not --text-muted — muted lands at ~3.4:1 on paper
+   and fails AA at this size. Wraps to two lines on a narrow viewport; nothing else moves. */
+header h1.app-title {
+  display: flex; align-items: baseline; flex-wrap: wrap;
+  column-gap: 12px; row-gap: 0; margin: 0 0 2px; font-weight: 650;
+}
+header h1.app-title .app-title-mark {
+  font-size: 30px; font-weight: 850; letter-spacing: -0.02em; line-height: 1.15;
+  color: var(--text-primary);
+}
+header h1.app-title .app-title-desc {
+  font-size: 13.5px; font-weight: 650; line-height: 1.4; color: var(--text-secondary);
+}
 p.sub { color: var(--text-secondary); font-size: 13.5px; margin: 0 0 2px; line-height: 1.5; }
 p.meta { color: var(--text-muted); font-size: 12px; margin: 0 0 10px; }
 code.inline { background: var(--gridline); border-radius: 4px; padding: 1px 5px; font-size: 12px; }

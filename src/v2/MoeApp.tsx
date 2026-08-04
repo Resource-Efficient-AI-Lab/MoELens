@@ -49,7 +49,10 @@ export function MoeApp() {
     <div className="moe-root">
       <div className="moe-wrap">
         <header className="full-bleed">
-          <h1>MoE-Lens: A Mixture-of-Experts Visualizer</h1>
+          <h1 className="app-title">
+            <span className="app-title-mark">MoE-Lens</span>{' '}
+            <span className="app-title-desc">A Mixture-of-Experts Visualizer</span>
+          </h1>
         </header>
 
         {tab === 'explorer' && (
