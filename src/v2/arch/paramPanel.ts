@@ -57,7 +57,9 @@ export function buildParamCountPanelHtml(DATA: PromptFlow): string {
       '<div class="math-eq">params/routed expert <span class="op">=</span> 3 <span class="op">×</span> (' + H + ' <span class="op">×</span> ' + I + ') <span class="op">=</span> <span class="val">' + fmtN(perExpert) + '</span>\n' +
       'params/MoE layer  <span class="op">=</span> (' + E + ' routed + ' + S + ' shared) <span class="op">×</span> ' + fmtN(perExpert) + ' <span class="op">=</span> <span class="val">' + fmtN(perLayer) + '</span>\n' +
       'all ' + DATA.num_layers + ' layers (' + (DATA.num_layers - 1) + ' MoE + 1 dense)  <span class="op">=</span> <span class="val">≈ 16.4B params</span>, but only ' + K + ' routed + ' + S + ' shared experts run per token</div>' +
-      '<footer class="note">Only ' + (K + S) + ' of ' + (E + S) + ' feed-forward experts run per token (top-' + K + ' routed + ' + S + ' always-on shared); the other ' + (E - K) + ' routed experts sit idle. That sparsity is why DeepSeek-MoE-16B has ~16.4B total parameters but only ~2.8B "active" per token. Layer 1 is a single dense feed-forward layer with no routing.</footer>';
+      // Trimmed to hold ONE wrapped line at the panel's width (2026-08-04, by request). The dense
+      // layer 1 sentence went with it — the equation line above already says `(27 MoE + 1 dense)`.
+      '<footer class="note">Only ' + (K + S) + ' of ' + (E + S) + ' experts run per token (top-' + K + ' routed + ' + S + ' shared), so DeepSeek-MoE-16B is ~16.4B params but only ~2.8B "active".</footer>';
   }
   const H0 = DATA.hidden_size, I0 = DATA.intermediate_size, E0 = DATA.num_experts, K0 = DATA.top_k_experts;
   const perExpert = 3 * H0 * I0;
@@ -71,13 +73,10 @@ export function buildParamCountPanelHtml(DATA: PromptFlow): string {
     // at 6.44B while the footer (correctly) says ~6.9B, and an unqualified "all 16 layers = 6.44B"
     // read as two different totals for the same model. Attention + embedding params are not in DATA,
     // so the honest fix is to label what this number actually counts rather than to compute 6.9B.
-    // ⚠ The exclusion note is its OWN line, not a parenthetical on the one above. `.math-eq` is
-    // `white-space: pre; overflow-x: auto`, so a long line does not wrap — it grows an in-panel
-    // horizontal scrollbar. Inline, this line measured 949px intrinsic against the 890px available
-    // at a 1024px viewport, i.e. the reader had to scroll sideways to reach the sparsity clause.
-    // Split, the widest line is 715px (the note is shorter than it and costs nothing), which keeps
-    // the onset near 849px — well under the ~990px the rest of the tab already floors at.
-    'all ' + DATA.num_layers + ' layers of routed FFN experts  <span class="op">=</span> <span class="val">≈ ' + (allLayers / 1e9).toFixed(2) + 'B params</span>, but only ' + K0 + '/' + E0 + ' experts run per token per layer\n' +
-    '<span class="op">(this sum excludes attention + embedding parameters)</span></div>' +
+    // The "excludes attention + embedding parameters" second line was dropped 2026-08-04, by
+    // request — `of routed FFN experts` on this line already says what is being summed, and the
+    // note restated it. `.math-eq` is `white-space: pre; overflow-x: auto`, so this must stay one
+    // line: at 715px intrinsic it is the widest line here and keeps the scroll onset near 849px.
+    'all ' + DATA.num_layers + ' layers of routed FFN experts  <span class="op">=</span> <span class="val">≈ ' + (allLayers / 1e9).toFixed(2) + 'B params</span>, but only ' + K0 + '/' + E0 + ' experts run per token per layer</div>' +
     '<footer class="note">Only ' + K0 + ' of ' + E0 + ' experts\' weights are actually multiplied for any given token while the rest sit idle in memory. That sparsity is why OLMoE has ~6.9B total parameters but only ~1.3B "active" per token.</footer>';
 }
