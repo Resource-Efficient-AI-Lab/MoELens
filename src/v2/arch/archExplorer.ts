@@ -2222,8 +2222,12 @@ export function bootArchExplorer(
           // already opens with a full intro paragraph and the summation above states the row-dotting,
           // so the panel read as prose → diagram → equation → more prose. The `ᵀ` in W_router's dim
           // label now goes unexplained inside this modal — deliberate, don't re-add a note for it.
+          // The caption under these chips ("Both of these run for this token…") was removed
+          // 2026-08-04, by request. With it gone the chips sit alone between the equation and the
+          // probability list, so their margins are symmetric with the list's own `margin-top` below
+          // — the row reads as one item spaced evenly between its two neighbours instead of being
+          // tucked up against the equation with its caption hanging off the bottom.
           '<div class="moa-expert-chips" style="margin:16px 0 0;">' + routeChips + '</div>' +
-          '<p class="math-hint" style="margin:5px 0 0;text-align:center;">Both of these run for this token. Steps 1, 3 and 4 follow one at a time (expert ' + (E + 1) + ' here).</p>' +
           // Last in the panel: the strip above is the reading, this is its exact numbers, so it
           // closes the step rather than interrupting the diagram → explanation → chips run.
           // Centered inline, not on `.math-eq` itself — that class is shared with every other math
@@ -2233,7 +2237,7 @@ export function bootArchExplorer(
           // face, the line-height and the `.op`/`.val` colours the list is built from. Only the fill
           // and the rule are dropped — `border-color:transparent`, NOT `border:0`, so the 1px still
           // occupies space and the text does not shift out of the position it had with the box.
-          '<div class="math-eq wrap" style="font-size:10.5px;text-align:center;margin-top:14px;background:none;border-color:transparent;">' + probList + '</div>' +
+          '<div class="math-eq wrap" style="font-size:10.5px;text-align:center;margin-top:16px;background:none;border-color:transparent;">' + probList + '</div>' +
           '</div>', ATTN_PANEL_CLS);
 
         html += attnPanel('map', aTab,
